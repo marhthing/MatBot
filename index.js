@@ -19,25 +19,27 @@ const isInitialSetup = !existsSync('src/index.js') || !existsSync('package.json'
 const isForcedUpdate = existsSync('.update_flag.json');
 const isRestart = existsSync('.restart_flag');
 
-if (isRestart) {
-    console.log('♻️ Restart flag detected, clearing flag...');
-    try { unlinkSync('.restart_flag'); } catch (e) {}
-}
-
-if (isInitialSetup || isForcedUpdate) {
-    if (isForcedUpdate) {
-        console.log('🔄 Forced update detected - recloning from GitHub...');
-    } else {
-        console.log('🔧 Initial setup detected - cloning from GitHub...');
+(async () => {
+    if (isRestart) {
+        console.log('♻️ Restart flag detected, clearing flag...');
+        try { unlinkSync('.restart_flag'); } catch (e) {}
     }
-    cloneAndSetup();
-} else {
-    // Start the main bot (src/index.js)
-    console.log('🚀 Starting MATBOT...');
-    startBot('src/index.js');
-}
 
-function cloneAndSetup() {
+    if (isInitialSetup || isForcedUpdate) {
+        if (isForcedUpdate) {
+            console.log('🔄 Forced update detected - recloning from GitHub...');
+        } else {
+            console.log('🔧 Initial setup detected - cloning from GitHub...');
+        }
+        await cloneAndSetup();
+    } else {
+        // Start the main bot (src/index.js)
+        console.log('🚀 Starting MATBOT...');
+        startBot('src/index.js');
+    }
+})();
+
+async function cloneAndSetup() {
     console.log('📥 Cloning bot from GitHub...');
     console.log('🔗 Repository:', GITHUB_REPO);
     
@@ -87,9 +89,9 @@ function cloneAndSetup() {
     // Ensure .env exists and is populated before starting bot
     const envPath = './src/config/default.js';
     // Import the config file to trigger .env creation/population
-    require(envPath);
+    await import(envPath);
     // Now reload environment variables from .env
-    require('dotenv').config();
+    await import('dotenv/config');
 
     startBot('src/index.js');
 }
