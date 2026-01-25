@@ -85,12 +85,8 @@ function startBot(entryPoint = 'src/index.js') {
 
     botProcess.on('exit', (code, signal) => {
         console.log(`🔄 Bot exited with code ${code}, signal ${signal}`);
-        // Check for restart flag
-        if (existsSync('.restart_flag')) {
-            console.log('♻️ Restart flag detected, restarting bot...');
-            spawnSync('powershell', ['-Command', 'Remove-Item .restart_flag -Force'], { stdio: 'inherit' });
-            setTimeout(() => startBot(entryPoint), 1000);
-        }
+        // Exit the manager process so an external process manager (like PM2) can restart it
+        process.exit(0);
     });
 
     botProcess.on('error', (error) => {

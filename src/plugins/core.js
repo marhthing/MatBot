@@ -41,28 +41,40 @@ export default {
     },
     {
       name: 'update',
-      aliases: [],
+      aliases: ['update', 'update now'],
       description: 'Update the bot from GitHub and restart',
-      usage: '.update',
+      usage: '.update or .update now',
       category: 'owner',
       ownerOnly: true,
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        await ctx.reply('🔄 Updating from GitHub and restarting...');
-        console.log('Update command received, pulling from git and restarting.');
-        const { spawnSync, spawn } = require('child_process');
-        setTimeout(() => {
-          spawnSync('git', ['pull'], { stdio: 'inherit', shell: process.platform === 'win32' });
-          spawn(process.argv[0], process.argv.slice(1), {
-            cwd: process.cwd(),
-            detached: true,
-            stdio: 'ignore',
-            shell: process.platform === 'win32',
-          }).unref();
-          process.exit(0);
-        }, 500);
+        const { execSync, spawnSync } = require('child_process');
+        const { writeFileSync } = require('fs');
+        let isUpToDate = true;
+        try {
+          // Fetch latest from origin
+          execSync('git fetch origin', { stdio: 'ignore' });
+          // Check if HEAD is behind origin/main
+          const local = execSync('git rev-parse HEAD').toString().trim();
+          const remote = execSync('git rev-parse origin/main').toString().trim();
+          isUpToDate = (local === remote);
+        } catch (e) {
+          isUpToDate = false;
+        }
+        if (ctx.command === 'update') {
+          if (isUpToDate) {
+            await ctx.reply('✅ Bot is already up to date with GitHub.');
+          } else {
+            await ctx.reply('❌ Bot is not up to date. Use .update now to force a full update.');
+          }
+          return;
+        }
+        // .update now: force full reclone
+        await ctx.reply('🔄 Forcing full update: recloning from GitHub and restarting...');
+        writeFileSync('.update_flag.json', '{}');
+        setTimeout(() => process.exit(0), 500);
       }
     }
   ]

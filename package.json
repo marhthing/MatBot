@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
+    "start": "pm2-runtime index.js",
     "dev": "node --watch src/index.js",
     "test": "echo \"No tests yet\" && exit 0"
   },
