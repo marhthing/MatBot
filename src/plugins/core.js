@@ -1,4 +1,7 @@
 // pm2style.js - Plugin for .shutdown, .update, .restart commands (PM2 style)
+import { writeFileSync } from 'fs';
+import { execSync } from 'child_process';
+
 export default {
   name: 'core',
   description: 'Bot process management commands: .shutdown, .update, .restart',
@@ -34,14 +37,17 @@ export default {
       async execute(ctx) {
         await ctx.reply('♻️ Restarting...');
         console.log('Restart command received, creating .restart_flag for manager.');
-        const { writeFileSync } = require('fs');
-        writeFileSync('.restart_flag', '1');
+        try {
+          writeFileSync('.restart_flag', '1');
+        } catch (e) {
+          console.error('Failed to write .restart_flag:', e);
+        }
         setTimeout(() => process.exit(0), 500);
       }
     },
     {
       name: 'update',
-      aliases: ['update', 'update now'],
+      aliases: ['update now'],
       description: 'Update the bot from GitHub and restart',
       usage: '.update or .update now',
       category: 'owner',
@@ -50,8 +56,6 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        const { execSync, spawnSync } = require('child_process');
-        const { writeFileSync } = require('fs');
         let isUpToDate = true;
         try {
           // Fetch latest from origin
@@ -63,7 +67,11 @@ export default {
         } catch (e) {
           isUpToDate = false;
         }
-        if (ctx.command === 'update') {
+
+        const args = ctx.text.split(' ');
+        const isNow = args.includes('now');
+
+        if (!isNow) {
           if (isUpToDate) {
             await ctx.reply('✅ Bot is already up to date with GitHub.');
           } else {
@@ -71,9 +79,14 @@ export default {
           }
           return;
         }
+
         // .update now: force full reclone
         await ctx.reply('🔄 Forcing full update: recloning from GitHub and restarting...');
-        writeFileSync('.update_flag.json', '{}');
+        try {
+          writeFileSync('.update_flag.json', '{}');
+        } catch (e) {
+          console.error('Failed to write .update_flag.json:', e);
+        }
         setTimeout(() => process.exit(0), 500);
       }
     }

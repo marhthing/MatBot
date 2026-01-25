@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -17,6 +17,12 @@ const GITHUB_REPO = 'https://github.com/marhthing/MatBot.git';
 // Check if this is an initial setup, restart, or forced update
 const isInitialSetup = !existsSync('src/index.js') || !existsSync('package.json');
 const isForcedUpdate = existsSync('.update_flag.json');
+const isRestart = existsSync('.restart_flag');
+
+if (isRestart) {
+    console.log('♻️ Restart flag detected, clearing flag...');
+    try { unlinkSync('.restart_flag'); } catch (e) {}
+}
 
 if (isInitialSetup || isForcedUpdate) {
     if (isForcedUpdate) {
@@ -34,14 +40,23 @@ if (isInitialSetup || isForcedUpdate) {
 function cloneAndSetup() {
     console.log('📥 Cloning bot from GitHub...');
     console.log('🔗 Repository:', GITHUB_REPO);
+    
+    const isWindows = process.platform === 'win32';
+    
     // Clean workspace (preserve important files)
-    spawnSync('powershell', ['-Command', 'Get-ChildItem -Exclude index.js,session,.env,node_modules | Remove-Item -Recurse -Force'], { stdio: 'inherit' });
+    if (isWindows) {
+        spawnSync('powershell', ['-Command', 'Get-ChildItem -Exclude index.js,session,.env,node_modules,storage,replit.md | Remove-Item -Recurse -Force'], { stdio: 'inherit' });
+    } else {
+        spawnSync('bash', ['-c', 'find . -maxdepth 1 ! -name "index.js" ! -name "session" ! -name ".env" ! -name "node_modules" ! -name "storage" ! -name "replit.md" ! -name "." -exec rm -rf {} +'], { stdio: 'inherit' });
+    }
+
     // Clone repository into temp_clone
     const cloneResult = spawnSync('git', ['clone', GITHUB_REPO, 'temp_clone'], { stdio: 'inherit' });
     if (cloneResult.error || cloneResult.status !== 0) {
         console.error('❌ Failed to clone repository!');
         process.exit(1);
     }
+    
     // Check if src/index.js exists in temp_clone before copying
     if (!existsSync('temp_clone/src/index.js')) {
         console.error('❌ src/index.js does not exist in temp_clone after cloning!');
@@ -49,12 +64,23 @@ function cloneAndSetup() {
     } else {
         console.log('✅ src/index.js found in temp_clone, proceeding to move...');
     }
+    
     // Move all files/folders from temp_clone to root (except temp_clone itself)
-    spawnSync('robocopy', ['temp_clone', '.', '/E', '/MOVE', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit' });
-    // Remove temp_clone if it still exists (robocopy /MOVE should remove it, but just in case)
-    if (existsSync('temp_clone')) {
-        spawnSync('powershell', ['-Command', 'Remove-Item temp_clone -Recurse -Force'], { stdio: 'inherit' });
+    if (isWindows) {
+        spawnSync('robocopy', ['temp_clone', '.', '/E', '/MOVE', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit' });
+    } else {
+        spawnSync('bash', ['-c', 'cp -rf temp_clone/* . && rm -rf temp_clone'], { stdio: 'inherit' });
     }
+    
+    // Remove temp_clone if it still exists
+    if (existsSync('temp_clone')) {
+        if (isWindows) {
+            spawnSync('powershell', ['-Command', 'Remove-Item temp_clone -Recurse -Force'], { stdio: 'inherit' });
+        } else {
+            spawnSync('rm', ['-rf', 'temp_clone'], { stdio: 'inherit' });
+        }
+    }
+    
     console.log('✅ Bot files moved successfully!');
     installDependencies();
     startBot('src/index.js');
