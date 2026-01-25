@@ -11,24 +11,30 @@ const requiredVars = {
   PREFIX: '.',
   OWNER_NUMBER: '',
   ENABLE_WHATSAPP: 'true',
-  ENABLE_TELEGRAM: 'true',
+  ENABLE_TELEGRAM: 'false',
   TELEGRAM_BOT_TOKEN: '',
   LOG_LEVEL: 'info',
   MAX_COMMAND_COOLDOWN: '3000',
   STICKER_PACK: 'MATDEV Bot',
   STICKER_AUTHOR: 'Bot',
 };
+// Ensure .env exists and is populated with all required variables
+let envContent = '';
 if (fs.existsSync(envPath)) {
-  let envContent = fs.readFileSync(envPath, 'utf-8');
-  let changed = false;
-  for (const [key, def] of Object.entries(requiredVars)) {
-    const regex = new RegExp(`^${key}=`, 'm');
-    if (!regex.test(envContent)) {
-      envContent += `\n${key}=${def}`;
-      changed = true;
-    }
+  envContent = fs.readFileSync(envPath, 'utf-8');
+} else {
+  envContent = '';
+}
+let changed = false;
+for (const [key, def] of Object.entries(requiredVars)) {
+  const regex = new RegExp(`^${key}=`, 'm');
+  if (!regex.test(envContent)) {
+    envContent += `\n${key}=${def}`;
+    changed = true;
   }
-  if (changed) fs.writeFileSync(envPath, envContent.trim() + '\n');
+}
+if (changed || !fs.existsSync(envPath)) {
+  fs.writeFileSync(envPath, envContent.trim() + '\n');
 }
 
 export default {
