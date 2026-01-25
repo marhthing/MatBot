@@ -9,307 +9,163 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import qrcode from 'qrcode-terminal';
-import readline from 'readline';
 import BaseAdapter from './BaseAdapter.js';
 import MessageContext from '../core/MessageContext.js';
-import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
 import memoryStore from '../utils/memory.js';
 import { logIncoming, logOutgoing } from '../utils/debugMessageLogger.js';
+import readline from 'readline';
 
 export default class WhatsAppAdapter extends BaseAdapter {
   constructor(config) {
     super('whatsapp', config);
     
-    this.baileysLogger = pino({ level: 'silent' });
+    // Create a Baileys-compatible silent logger
+    this.baileysLogger = {
+      level: 'silent',
+      child: () => this.baileysLogger,
+      trace: () => {}, debug: () => {}, info: () => {},
+      warn: () => {}, error: () => {}, fatal: () => {}
+    };
     this.pendingViewOnce = new Map();
-    this.loginMethod = null;
+    this.pairingCodeRequested = false;
+    this.pairingMethod = null;
+    this.phoneNumber = null;
     this.isFirstPairingAttempt = true;
   }
 
   async connect() {
     const sessionPath = path.join(this.config.paths.session, 'whatsapp');
+    
+    // Check if credentials exist
+    const credsPath = path.join(sessionPath, 'creds.json');
+    const credsExist = fs.existsSync(credsPath);
+    
     if (!fs.existsSync(sessionPath)) {
       fs.mkdirSync(sessionPath, { recursive: true });
     }
 
-    const credsPath = path.join(sessionPath, 'creds.json');
-    const credsExist = fs.existsSync(credsPath);
-
+    // If credentials exist, auto-login without prompting
     if (credsExist) {
-      // Auto-login with existing credentials
-      this.logger.info('🔑 Found existing WhatsApp credentials. Logging in automatically...');
-      await this.connectWithExistingCreds(sessionPath);
+      this.logger.info('Found existing WhatsApp credentials. Logging in automatically...');
+      await this.connectWithCredentials(sessionPath);
       return;
     }
 
-    // Interactive login method selection for new connections
-    await this.promptLoginMethod(sessionPath);
+    // Ask for pairing method and phone number BEFORE attempting connection
+    if (!this.pairingMethod) {
+      this.pairingMethod = await this.promptPairingMethod();
+    }
+    
+    if (this.pairingMethod === 'pairingCode' && !this.phoneNumber) {
+      this.phoneNumber = await this.promptPhoneNumber();
+    }
+
+    // Clear auth directory on first pairing attempt for clean start
+    if (this.isFirstPairingAttempt && this.pairingMethod === 'pairingCode') {
+      const files = fs.readdirSync(sessionPath);
+      for (const file of files) {
+        fs.unlinkSync(path.join(sessionPath, file));
+      }
+    }
+
+    await this.connectWithAuth(sessionPath);
   }
 
-  async promptLoginMethod(sessionPath) {
-    const rl = readline.createInterface({ 
-      input: process.stdin, 
-      output: process.stdout 
-    });
-
-    let methodPrompted = false;
-    let methodTimeout;
-
-    const promptUser = () => {
-      if (methodPrompted) return;
-      methodPrompted = true;
-      
-      rl.question('Choose login method: [1] QR Code, [2] Pairing Code. (Default: Pairing Code in 30s)\n> ', (answer) => {
-        clearTimeout(methodTimeout);
-        if (answer.trim() === '1') {
-          this.loginMethod = 'qr';
-          this.connectWithQRCode(sessionPath, rl);
-        } else {
-          this.loginMethod = 'pairing';
-          this.promptPhoneNumber(sessionPath, rl);
-        }
-      });
-
-      // Default to pairing code after 30s
-      methodTimeout = setTimeout(() => {
-        if (!this.loginMethod) {
-          this.loginMethod = 'pairing';
-          console.log('⏳ No option selected. Defaulting to Pairing Code.');
-          this.promptPhoneNumber(sessionPath, rl);
-        }
-      }, 30000);
-    };
-
-    promptUser();
-  }
-
-  async promptPhoneNumber(sessionPath, rl) {
-    rl.question('Enter your WhatsApp number with country code (e.g. +1234567890):\n> ', (number) => {
-      const userNumber = number.trim();
-      if (!userNumber.match(/^\+\d{10,15}$/)) {
-        console.log('❌ Invalid number format. Please try again.');
-        this.promptPhoneNumber(sessionPath, rl);
-      } else {
-        this.connectWithPairingCode(sessionPath, userNumber, rl);
+  async connectWithCredentials(sessionPath) {
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    const { version } = await fetchLatestBaileysVersion();
+    
+    this.client = makeWASocket({
+      auth: state,
+      version,
+      browser: Browsers.macOS('Chrome'),
+      logger: this.baileysLogger,
+      generateHighQualityLinkPreview: true,
+      getMessage: async (key) => {
+        const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
+        if (msg?.message) return msg;
+        return { message: null };
       }
     });
+
+    this.setupEventHandlers(saveCreds);
   }
 
-  async connectWithExistingCreds(sessionPath) {
-    try {
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-      const version = (await fetchLatestBaileysVersion()).version;
-      
-      this.client = makeWASocket({
-        auth: state,
-        version,
-        browser: Browsers.macOS('Chrome'),
-        logger: this.baileysLogger,
-        printQRInTerminal: false,
-        generateHighQualityLinkPreview: true,
-        defaultQueryTimeoutMs: 60000,
-        getMessage: async (key) => {
-          const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
-          if (msg?.message) return msg;
-          if (key.isViewOnce) return undefined;
-          return { message: null };
-        }
-      });
+  async connectWithAuth(sessionPath) {
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    const { version } = await fetchLatestBaileysVersion();
 
-      this.setupEventHandlers(saveCreds);
-    } catch (error) {
-      this.logger.error({ error }, 'Failed to connect with existing credentials');
-      throw error;
-    }
-  }
-
-  async connectWithQRCode(sessionPath, rl) {
-    try {
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-      const version = (await fetchLatestBaileysVersion()).version;
-      
-      this.client = makeWASocket({
-        auth: state,
-        version,
-        browser: Browsers.macOS('Chrome'),
-        logger: this.baileysLogger,
-        printQRInTerminal: true,
-        getMessage: async (key) => {
-          const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
-          if (msg?.message) return msg;
-          if (key.isViewOnce) return undefined;
-          return { message: null };
-        }
-      });
-
-      this.setupEventHandlers(saveCreds);
-      rl.close();
-    } catch (error) {
-      this.logger.error({ error }, 'Failed to connect with QR code');
-      rl.close();
-      throw error;
-    }
-  }
-
-  async connectWithPairingCode(sessionPath, userNumber, rl) {
-    try {
-      // ONLY clear auth directory on FIRST attempt, not on reconnects
-      if (this.isFirstPairingAttempt) {
-        if (fs.existsSync(sessionPath)) {
-          fs.rmSync(sessionPath, { recursive: true, force: true });
-        }
-        fs.mkdirSync(sessionPath, { recursive: true });
+    this.client = makeWASocket({
+      auth: state,
+      version,
+      browser: Browsers.macOS('Chrome'),
+      logger: this.baileysLogger,
+      printQRInTerminal: false,
+      generateHighQualityLinkPreview: true,
+      getMessage: async (key) => {
+        const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
+        if (msg?.message) return msg;
+        return { message: null };
       }
+    });
 
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-      const version = (await fetchLatestBaileysVersion()).version;
-      
-      this.client = makeWASocket({
-        auth: state,
-        version,
-        browser: Browsers.macOS('Chrome'),
-        logger: this.baileysLogger,
-        printQRInTerminal: false,
-        getMessage: async (key) => {
-          const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
-          if (msg?.message) return msg;
-          if (key.isViewOnce) return undefined;
-          return { message: null };
-        }
-      });
-
-      let pairingRequested = false;
-
-      // Save credentials when updated
-      this.client.ev.on('creds.update', saveCreds);
-
-      // Handle connection updates
-      this.client.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        console.log('[DEBUG] Pairing connection status:', connection);
-
-        // Request pairing code only on first attempt when QR appears
-        if (qr && !pairingRequested && !this.client.authState.creds.registered && this.isFirstPairingAttempt) {
-          pairingRequested = true;
-          
-          // Wait for socket to stabilize
-          await delay(2000);
-          
-          try {
-            const phoneNumber = userNumber.replace(/\D/g, '');
-            console.log('\n📞 Requesting pairing code for:', phoneNumber);
-            
-            const code = await this.client.requestPairingCode(phoneNumber);
-            
-            console.log('\n╔═══════════════════════════════════╗');
-            console.log(`║  🔑 Pairing Code: ${code}  ║`);
-            console.log('╚═══════════════════════════════════╝\n');
-            console.log('📱 Enter this code in WhatsApp:');
-            console.log('   Settings → Linked Devices → Link a Device');
-            console.log('   → Link with phone number instead\n');
-            console.log('⏰ You have 20 seconds\n');
-          } catch (err) {
-            console.error('\n❌ Pairing code error:', err.message);
-            process.exit(1);
-          }
-          
-          rl.close();
-        }
-
-        // Handle successful connection
-        if (connection === 'open') {
-          console.log('\n✅ Successfully paired and connected!\n');
-          this.isFirstPairingAttempt = false;
-          this.emit('ready');
-        }
-
-        // Handle connection close
-        if (connection === 'close') {
-          const statusCode = lastDisconnect?.error?.output?.statusCode;
-          
-          // After entering code, WhatsApp disconnects to reconnect with credentials
-          if (statusCode === DisconnectReason.restartRequired || 
-              (pairingRequested && statusCode !== DisconnectReason.loggedOut)) {
-            console.log('\n🔄 Reconnecting with saved credentials...\n');
-            this.isFirstPairingAttempt = false;
-            setTimeout(() => this.connectWithPairingCode(sessionPath, userNumber, rl), 1000);
-            return;
-          }
-
-          // Handle authentication failure
-          if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-            console.log('\n❌ Pairing failed - Authentication error\n');
-            process.exit(1);
-          }
-        }
-      });
-
-      // Setup remaining event handlers
-      this.client.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
-        for (const msg of messages) {
-          const keys = Object.keys(msg.message || {});
-          console.log(`[WhatsAppAdapter] New Message: ${msg.key.id} | Keys: ${keys.length > 0 ? keys : 'EMPTY'}`);
-          
-          if (msg.key?.isViewOnce && !msg.message && this.pendingViewOnce.has(msg.key.id)) {
-            console.log('[WhatsAppAdapter] 🔥 Restoring view-once from cache!');
-            msg.message = this.pendingViewOnce.get(msg.key.id).message;
-            this.pendingViewOnce.delete(msg.key.id);
-          }
-          
-          if (!msg.message && !msg.messageStubType && !msg.key?.isViewOnce) continue;
-          
-          try {
-            memoryStore.saveMessage('whatsapp', msg.key.remoteJid, msg.key.id, msg);
-            const messageContext = await this.parseMessage(msg);
-            this.emitMessage(messageContext);
-          } catch (error) {
-            this.logger.error({ error }, 'Failed to parse WhatsApp message');
-          }
-        }
-      });
-
-      this.client.ev.on('messages.update', async (updates) => {
-        for (const update of updates) {
-          this.emit('protocol', update);
-        }
-      });
-
-    } catch (err) {
-      console.error('\n❌ Setup error:', err.message);
-      rl.close();
-      throw err;
-    }
+    this.setupEventHandlers(saveCreds, sessionPath);
   }
 
-  setupEventHandlers(saveCreds) {
+  setupEventHandlers(saveCreds, sessionPath) {
+    // Save credentials when updated
     this.client.ev.on('creds.update', saveCreds);
 
+    // Handle connection updates
     this.client.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
-      if (qr && this.loginMethod === 'qr') {
-        this.logger.info('📱 Scan QR code to login to WhatsApp');
-        console.log('\n');
-        qrcode.generate(qr, { small: true });
-        console.log('\n');
+      // Handle QR code - request pairing code or display QR
+      if (qr) {
+        if (this.pairingMethod === 'qr') {
+          this.logger.info('Scan QR code to login to WhatsApp');
+          console.log('\n╔════════════════════════════════════════╗');
+          console.log('║   Scan this QR code in WhatsApp:       ║');
+          console.log('║   Settings > Linked Devices            ║');
+          console.log('║   > Link a Device                      ║');
+          console.log('╚════════════════════════════════════════╝\n');
+          qrcode.generate(qr, { small: true });
+          console.log('\n⏳ Waiting for you to scan the QR code...\n');
+        } else if (this.pairingMethod === 'pairingCode' && 
+                   !this.pairingCodeRequested && 
+                   !this.client.authState.creds.registered &&
+                   this.isFirstPairingAttempt) {
+          this.pairingCodeRequested = true;
+          
+          try {
+            // Wait for socket to stabilize (2 seconds like working bot)
+            await delay(2000);
+            
+            const code = await this.client.requestPairingCode(this.phoneNumber);
+            console.log('\n╔════════════════════════════════════════╗');
+            console.log(`║   🔑 Pairing Code: ${code}              ║`);
+            console.log('╚════════════════════════════════════════╝\n');
+            console.log('📱 Enter this code in WhatsApp:');
+            console.log('   Settings → Linked Devices → Link a Device');
+            console.log('   → Link with phone number instead\n');
+            console.log('⏰ You have 20 seconds to enter the code\n');
+          } catch (error) {
+            this.logger.error({ error }, 'Failed to request pairing code');
+            console.log('\n❌ Pairing code error:', error.message);
+            console.log('Make sure phone number format is correct (e.g., 2347012343234)\n');
+            process.exit(1);
+          }
+        }
       }
 
-      if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect?.error instanceof Boom) &&
-          lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut;
-
-        this.logger.info(`Connection closed. Reconnecting: ${shouldReconnect}`);
-
-        if (shouldReconnect) {
-          await delay(5000);
-          await this.connect();
-        }
-      } else if (connection === 'open') {
-        this.logger.info('✅ WhatsApp connected successfully!');
+      // Handle successful connection
+      if (connection === 'open') {
+        console.log('\n✅ Successfully paired and connected!\n');
+        this.isFirstPairingAttempt = false;
+        
+        // Get the bot's own WhatsApp number
         const userId = this.client.user?.id;
         if (userId) {
           const phone = userId.split(':')[0].replace(/[^\d]/g, '');
@@ -328,22 +184,50 @@ export default class WhatsAppAdapter extends BaseAdapter {
         }
         this.emit('ready');
       }
+
+      // Handle connection close
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        
+        // After entering pairing code, WhatsApp disconnects to reconnect with credentials
+        if (statusCode === DisconnectReason.restartRequired || 
+            (this.pairingCodeRequested && statusCode !== DisconnectReason.loggedOut)) {
+          console.log('\n🔄 Reconnecting with saved credentials...\n');
+          this.isFirstPairingAttempt = false;
+          this.pairingCodeRequested = false;
+          await delay(1000);
+          await this.connectWithAuth(sessionPath);
+          return;
+        }
+        
+        // Handle authentication failure
+        if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+          console.log('\n❌ Authentication failed - Please restart and try again\n');
+          process.exit(1);
+        }
+        
+        // Normal reconnection
+        const shouldReconnect = (lastDisconnect?.error instanceof Boom) &&
+          statusCode !== DisconnectReason.loggedOut;
+        
+        if (shouldReconnect) {
+          this.logger.info('Connection closed. Reconnecting...');
+          await delay(5000);
+          await this.connect();
+        }
+      }
     });
 
+    // Handle incoming messages
     this.client.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const msg of messages) {
         const keys = Object.keys(msg.message || {});
-        console.log(`[WhatsAppAdapter] New Message: ${msg.key.id} | Keys: ${keys.length > 0 ? keys : 'EMPTY'}`);
-        
         if (msg.key?.isViewOnce && !msg.message && this.pendingViewOnce.has(msg.key.id)) {
-          console.log('[WhatsAppAdapter] 🔥 Restoring view-once from cache!');
           msg.message = this.pendingViewOnce.get(msg.key.id).message;
           this.pendingViewOnce.delete(msg.key.id);
         }
-        
         if (!msg.message && !msg.messageStubType && !msg.key?.isViewOnce) continue;
-        
         try {
           memoryStore.saveMessage('whatsapp', msg.key.remoteJid, msg.key.id, msg);
           const messageContext = await this.parseMessage(msg);
@@ -354,6 +238,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       }
     });
 
+    // Handle protocol messages
     this.client.ev.on('messages.update', async (updates) => {
       for (const update of updates) {
         this.emit('protocol', update);
@@ -361,20 +246,63 @@ export default class WhatsAppAdapter extends BaseAdapter {
     });
   }
 
+  async promptPairingMethod() {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      console.log('\n🔐 WhatsApp Authentication');
+      rl.question('Choose login method (1 = QR code, 2 = 8-digit pairing code): ', (answer) => {
+        rl.close();
+        if (answer.trim() === '2') {
+          resolve('pairingCode');
+        } else {
+          resolve('qr');
+        }
+      });
+    });
+  }
+
+  async promptPhoneNumber() {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      console.log('\n📱 Phone Number Format:');
+      console.log('   - Country code + number (no +, -, spaces, or parentheses)');
+      console.log('   - Example: 447123456789 (UK), 12125551234 (US), 628123456789 (Indonesia)\n');
+      
+      rl.question('Enter your phone number: ', (answer) => {
+        rl.close();
+        // Clean the input to remove any non-numeric characters
+        const cleanNumber = answer.trim().replace(/[^\d]/g, '');
+        resolve(cleanNumber);
+      });
+    });
+  }
+
   async parseMessage(msg) {
     const isGroup = msg.key.remoteJid?.endsWith('@g.us');
-    const chatId = msg.key.remoteJid;
+    const chatId = msg.key.remoteJid; // Use remoteJid as primary chat ID
     
+    // Determine sender ID - handle @lid and @s.whatsapp.net
     let senderId;
     if (isGroup) {
+      // In groups, use participant field (can be @lid or @s.whatsapp.net)
       senderId = msg.key.participant;
       
+      // Baileys 6.8.0+ provides participantAlt for LID -> PN mapping
+      // Try participantAlt first (official field), then fallback to participantPn
       if (senderId?.endsWith('@lid')) {
         if (msg.key.participantAlt) {
-          senderId = msg.key.participantAlt;
+          senderId = msg.key.participantAlt; // Official field for PN when participant is LID
         } else if (msg.key.participantPn) {
-          senderId = msg.key.participantPn;
+          senderId = msg.key.participantPn; // Legacy field
         } else {
+          // If no mapping available, try to get from signal repository
           try {
             const pn = await this.client.signalRepository.lidMapping.getPNForLID(senderId);
             if (pn) senderId = pn;
@@ -384,20 +312,25 @@ export default class WhatsAppAdapter extends BaseAdapter {
         }
       }
     } else {
+      // In private chats, remoteJid is the sender
       senderId = msg.key.remoteJid;
       
+      // Handle LID in DMs using remoteJidAlt
       if (senderId?.endsWith('@lid') && msg.key.remoteJidAlt) {
         senderId = msg.key.remoteJidAlt;
       }
     }
     
+    // Normalize the JID
     senderId = jidNormalizedUser(senderId);
 
+    // Extract message text
     let text = msg.message?.conversation ||
                msg.message?.extendedTextMessage?.text ||
                msg.message?.imageMessage?.caption ||
                msg.message?.videoMessage?.caption || '';
 
+    // Parse command if message starts with prefix
     let command = null;
     let args = [];
     
@@ -407,8 +340,10 @@ export default class WhatsAppAdapter extends BaseAdapter {
       args = parts.slice(1);
     }
 
+    // Check if sender is owner
     const isOwner = senderId.split('@')[0] === this.config.ownerNumber;
 
+    // Check if sender is admin (in groups)
     let isAdmin = false;
     if (isGroup) {
       try {
@@ -422,9 +357,13 @@ export default class WhatsAppAdapter extends BaseAdapter {
       }
     }
 
+    // Get sender name
     let senderName = msg.pushName || senderId.split('@')[0];
+
+    // Check if message is from the bot itself
     const isFromMe = msg.key.fromMe || false;
 
+    // Handle media
     let media = null;
     const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'];
     for (const type of mediaTypes) {
@@ -438,6 +377,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       }
     }
 
+    // Handle quoted message (robust extraction)
     let quoted = null;
     const contextInfo =
       msg.message?.extendedTextMessage?.contextInfo ||
@@ -449,11 +389,12 @@ export default class WhatsAppAdapter extends BaseAdapter {
       msg.contextInfo;
 
     if (contextInfo) {
+      // Try to get quoted message ID from all possible fields
       const quotedMessageId =
         contextInfo.stanzaId ||
         contextInfo.quotedMessage?.key?.id ||
         contextInfo.quotedMessageId ||
-        contextInfo?.stanza_id;
+        contextInfo?.stanza_id; // Some Baileys versions
 
       if (quotedMessageId) {
         quoted = {
@@ -472,7 +413,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
     return new MessageContext({
       platform: 'whatsapp',
       messageId: msg.key.id,
-      messageKey: msg.key,
+      messageKey: msg.key, // 🔥 NEW: Pass the full message key
       chatId,
       senderId,
       senderName,
@@ -482,15 +423,15 @@ export default class WhatsAppAdapter extends BaseAdapter {
       isGroup,
       isOwner,
       isAdmin,
-      isFromMe,
+      isFromMe, // Add this field
       media,
       quoted,
-      raw: msg
+      raw: msg // <-- Ensure raw is always set
     }, this);
   }
 
   async sendMessage(chatId, text, options = {}) {
-    logOutgoing(chatId, text, options);
+    logOutgoing(chatId, text, options); // TEMP: Log outgoing message structure for debugging
     const message = { text };
 
     if (options.quoted) {
@@ -498,6 +439,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
     }
 
     const sent = await this.client.sendMessage(chatId, message);
+    // Save outgoing message to memory
     if (sent?.key?.id) {
       memoryStore.saveMessage('whatsapp', chatId, sent.key.id, sent);
     }
@@ -517,11 +459,18 @@ export default class WhatsAppAdapter extends BaseAdapter {
   }
 
   async sendReaction(chatId, messageKey, emoji) {
+    // messageKey should be the full message key object from msg.key
     const key = typeof messageKey === 'object' ? messageKey : {
       id: messageKey,
       remoteJid: chatId,
       fromMe: false
     };
+
+    console.log('[WhatsAppAdapter.sendReaction] Sending reaction:', {
+      chatId,
+      key,
+      emoji
+    });
 
     return await this.client.sendMessage(chatId, {
       react: {
@@ -578,7 +527,9 @@ export default class WhatsAppAdapter extends BaseAdapter {
     }
   }
 
+  // WhatsApp now supports editing messages via Baileys
   async editMessage(chatId, messageId, newText) {
+    // messageId can be a string or a key object
     const key = typeof messageId === 'object' ? messageId : { id: messageId, remoteJid: chatId, fromMe: true };
     return await this.client.sendMessage(chatId, {
       text: newText,
@@ -588,7 +539,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
 
   async disconnect() {
     if (this.client) {
-      this.client.end();
+      this.client.end(); // Gracefully close without logging out
       this.logger.info('WhatsApp disconnected (session preserved)');
     }
   }
