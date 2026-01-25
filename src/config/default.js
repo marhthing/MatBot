@@ -35,6 +35,8 @@ for (const [key, def] of Object.entries(requiredVars)) {
 }
 if (changed || !fs.existsSync(envPath)) {
   fs.writeFileSync(envPath, envContent.trim() + '\n');
+  // If .env was just created, reload env variables
+  dotenv.config();
 }
 
 export default {
