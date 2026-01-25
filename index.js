@@ -6,6 +6,8 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+let botProcess = null;
+
 console.log('🎯 MATBOT Auto-Manager');
 console.log('📍 Working in:', __dirname);
 
@@ -72,8 +74,6 @@ function installDependencies() {
     }
     console.log('✅ Dependencies installed!');
 }
-
-let botProcess = null;
 
 function startBot(entryPoint = 'src/index.js') {
     if (!existsSync(entryPoint)) {
