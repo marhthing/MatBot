@@ -47,8 +47,8 @@ export default {
 
   // Platform toggles
   platforms: {
-    whatsapp: process.env.ENABLE_WHATSAPP === 'true',
-    telegram: process.env.ENABLE_TELEGRAM === 'true'
+    whatsapp: (typeof process.env.ENABLE_WHATSAPP !== 'undefined' ? process.env.ENABLE_WHATSAPP : requiredVars.ENABLE_WHATSAPP) === 'true',
+    telegram: (typeof process.env.ENABLE_TELEGRAM !== 'undefined' ? process.env.ENABLE_TELEGRAM : requiredVars.ENABLE_TELEGRAM) === 'true'
   },
 
   // Telegram settings
