@@ -33,17 +33,10 @@ export default {
       cooldown: 0,
       async execute(ctx) {
         await ctx.reply('♻️ Restarting...');
-        console.log('Restart command received, forking new process and exiting.');
-        const { spawn } = require('child_process');
-        setTimeout(() => {
-          spawn(process.argv[0], process.argv.slice(1), {
-            cwd: process.cwd(),
-            detached: true,
-            stdio: 'ignore',
-            shell: process.platform === 'win32',
-          }).unref();
-          process.exit(0);
-        }, 500);
+        console.log('Restart command received, creating .restart_flag for manager.');
+        const { writeFileSync } = require('fs');
+        writeFileSync('.restart_flag', '1');
+        setTimeout(() => process.exit(0), 500);
       }
     },
     {

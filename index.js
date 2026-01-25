@@ -73,16 +73,26 @@ function installDependencies() {
     console.log('✅ Dependencies installed!');
 }
 
+let botProcess = null;
+
 function startBot(entryPoint = 'src/index.js') {
     if (!existsSync(entryPoint)) {
         console.error(`❌ Entry point ${entryPoint} not found!`);
         return;
     }
     console.log(`🚀 Starting bot: ${entryPoint}`);
-    const botProcess = spawn('node', [entryPoint], { stdio: 'inherit' });
+    botProcess = spawn('node', [entryPoint], { stdio: 'inherit' });
+
     botProcess.on('exit', (code, signal) => {
         console.log(`🔄 Bot exited with code ${code}, signal ${signal}`);
+        // Check for restart flag
+        if (existsSync('.restart_flag')) {
+            console.log('♻️ Restart flag detected, restarting bot...');
+            spawnSync('powershell', ['-Command', 'Remove-Item .restart_flag -Force'], { stdio: 'inherit' });
+            setTimeout(() => startBot(entryPoint), 1000);
+        }
     });
+
     botProcess.on('error', (error) => {
         console.error('❌ Bot start error:', error.message);
     });
