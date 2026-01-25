@@ -1,11 +1,11 @@
 {
-  "name": "matdev-universal-bot",
+  "name": "matbot",
   "version": "2.0.0",
   "description": "Universal bot for WhatsApp and Telegram with modular plugin system",
-  "main": "src/index.js",
+  "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node index.js",
     "dev": "node --watch src/index.js",
     "test": "echo \"No tests yet\" && exit 0"
   },
