@@ -83,6 +83,14 @@ function cloneAndSetup() {
     
     console.log('✅ Bot files moved successfully!');
     installDependencies();
+
+    // Ensure .env exists and is populated before starting bot
+    const envPath = './src/config/default.js';
+    // Import the config file to trigger .env creation/population
+    require(envPath);
+    // Now reload environment variables from .env
+    require('dotenv').config();
+
     startBot('src/index.js');
 }
 
