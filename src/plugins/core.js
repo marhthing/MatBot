@@ -48,7 +48,7 @@ export default {
     {
       name: 'update',
       aliases: ['update now'],
-      description: 'Update the bot from GitHub and restart',
+      description: 'Delete important files and restart the bot (forces reclone)',
       usage: '.update or .update now',
       category: 'owner',
       ownerOnly: true,
@@ -56,36 +56,33 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        let isUpToDate = true;
-        try {
-          // Fetch latest from origin
-          execSync('git fetch origin', { stdio: 'ignore' });
-          // Check if HEAD is behind origin/main
-          const local = execSync('git rev-parse HEAD').toString().trim();
-          const remote = execSync('git rev-parse origin/main').toString().trim();
-          isUpToDate = (local === remote);
-        } catch (e) {
-          isUpToDate = false;
-        }
-
-        const args = ctx.text.split(' ');
-        const isNow = args.includes('now');
-
-        if (!isNow) {
-          if (isUpToDate) {
-            await ctx.reply('✅ Bot is already up to date with GitHub.');
-          } else {
-            await ctx.reply('❌ Bot is not up to date. Use .update now to force a full update.');
+        await ctx.reply('🗑️ Deleting important files and restarting bot (will force reclone)...');
+        const fs = await import('fs');
+        const path = await import('path');
+        const cwd = process.cwd();
+        // List of files/folders to delete
+        const targets = [
+          'package.json',
+          'package-lock.json',
+          'node_modules',
+          'src',
+          'storage',
+          'tmp',
+          'README.md',
+        ];
+        for (const target of targets) {
+          const targetPath = path.resolve(cwd, target);
+          if (fs.existsSync(targetPath)) {
+            try {
+              if (fs.lstatSync(targetPath).isDirectory()) {
+                fs.rmSync(targetPath, { recursive: true, force: true });
+              } else {
+                fs.unlinkSync(targetPath);
+              }
+            } catch (e) {
+              // Ignore errors
+            }
           }
-          return;
-        }
-
-        // .update now: force full reclone
-        await ctx.reply('🔄 Forcing full update: recloning from GitHub and restarting...');
-        try {
-          writeFileSync('.update_flag.json', JSON.stringify({ timestamp: Date.now() }));
-        } catch (e) {
-          console.error('Failed to write .update_flag.json:', e);
         }
         setTimeout(() => process.exit(0), 1000);
       }
