@@ -67,14 +67,10 @@ async function cloneAndSetup() {
     // Move all files/folders from temp_clone to root (except temp_clone itself)
     if (isWindows) {
         spawnSync('robocopy', ['temp_clone', '.', '/E', '/MOVE', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit' });
-    } else {
-        spawnSync('bash', ['-c', 'cp -rf temp_clone/* . && rm -rf temp_clone'], { stdio: 'inherit' });
-    }
-    // Move .git folder as well (for Windows and Unix)
-    if (isWindows) {
+        // Move .git folder as well (robocopy needs explicit dot)
         spawnSync('robocopy', ['temp_clone', '.git', '/E', '/MOVE', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit' });
     } else {
-        spawnSync('bash', ['-c', 'cp -rf temp_clone/.git . && rm -rf temp_clone'], { stdio: 'inherit' });
+        spawnSync('bash', ['-c', 'cp -rf temp_clone/* . && cp -rf temp_clone/.git . && rm -rf temp_clone'], { stdio: 'inherit' });
     }
     // Remove temp_clone if it still exists
     if (existsSync('temp_clone')) {
