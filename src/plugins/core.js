@@ -83,12 +83,8 @@ export default {
             } catch (e) {}
           }
           
-          // Force exit immediately and start the root index.js (recloner)
-          if (process.platform === 'win32') {
-            execSync('start /b cmd /c "timeout /t 1 >nul & node index.js"');
-          } else {
-            execSync('nohup node index.js &');
-          }
+          // Force exit immediately and start the root index.js (recloner) in the foreground (interactive)
+          execSync('node index.js', { stdio: 'inherit' });
           process.exit(0);
           return;
         }
