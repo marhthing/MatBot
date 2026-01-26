@@ -22,18 +22,28 @@ export default {
         const os = await import('os');
         const totalMem = os.default.totalmem();
         const freeMem = os.default.freemem();
-        const format = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+        const cpus = os.default.cpus();
+        const platform = os.default.platform();
+        const arch = os.default.arch();
+        const uptime = os.default.uptime();
+        const formatMB = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+        const formatGB = (bytes) => `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
         const msg = `
 *Bot Process Memory Usage:*
-• RSS: ${format(processMem.rss)}
-• Heap Total: ${format(processMem.heapTotal)}
-• Heap Used: ${format(processMem.heapUsed)}
-• External: ${format(processMem.external)}
-• Array Buffers: ${format(processMem.arrayBuffers)}
+• RSS: ${formatMB(processMem.rss)}
+• Heap Total: ${formatMB(processMem.heapTotal)}
+• Heap Used: ${formatMB(processMem.heapUsed)}
+• External: ${formatMB(processMem.external)}
+• Array Buffers: ${formatMB(processMem.arrayBuffers)}
+
+*System Info:*
+• Platform: ${platform} ${arch}
+• Uptime: ${(uptime/3600).toFixed(2)} hours
+• CPU: ${cpus[0]?.model || 'Unknown'} (${cpus.length} cores)
 
 *System Memory:*
-• Free: ${format(freeMem)}
-• Total: ${format(totalMem)}
+• Free: ${formatMB(freeMem)} (${formatGB(freeMem)})
+• Total: ${formatMB(totalMem)} (${formatGB(totalMem)})
 • Free %: ${((freeMem/totalMem)*100).toFixed(2)}%
 `;
         await ctx.reply(msg.trim());
