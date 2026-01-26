@@ -132,6 +132,10 @@ export default {
           envContent += `\n${newValue}`;
         }
         fs.writeFileSync(envPath, envContent);
+        process.env.AUTO_READ = value === 'on' ? 'true' : 'false';
+        // Immediately update WhatsAppAdapter runtime flag
+        const waAdapter = ctx.platformAdapter || (ctx.bot && ctx.bot.getAdapter && ctx.bot.getAdapter('whatsapp'));
+        if (waAdapter) waAdapter._autoRead = value === 'on';
         await ctx.reply(`✅ AUTO_READ has been set to ${value}.`);
       }
     },

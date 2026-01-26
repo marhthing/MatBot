@@ -579,9 +579,12 @@ export default class WhatsAppAdapter extends BaseAdapter {
   /**
    * Mark a message as read
    */
-  async markRead(chatId, messageId) {
+  async markRead(chatId, messageId, messageKey) {
+    if (!this._autoRead) return; // Only mark as read if enabled at runtime
+    const key = messageKey || { remoteJid: chatId, id: messageId };
+    this.logger.info('[WhatsAppAdapter.markRead] Marking as read:', key);
     if (this.client && typeof this.client.readMessages === 'function') {
-      await this.client.readMessages([{ remoteJid: chatId, id: messageId }]);
+      await this.client.readMessages([key]);
     }
   }
 

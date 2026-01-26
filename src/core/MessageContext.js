@@ -125,7 +125,7 @@ export default class MessageContext {
    */
   async read() {
     if (typeof this._adapter.markRead === 'function') {
-      await this._adapter.markRead(this.chatId, this.messageId);
+      await this._adapter.markRead(this.chatId, this.messageId, this.messageKey);
     }
   }
 }
