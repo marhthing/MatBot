@@ -16,7 +16,6 @@ const GITHUB_REPO = 'https://github.com/marhthing/MatBot.git';
 
 // Check if this is an initial setup, restart, or forced update
 const isInitialSetup = !existsSync('src/index.js') || !existsSync('package.json');
-const isForcedUpdate = existsSync('.update_flag.json');
 const isRestart = existsSync('.restart_flag');
 
 (async () => {
@@ -25,34 +24,8 @@ const isRestart = existsSync('.restart_flag');
         try { unlinkSync('.restart_flag'); } catch (e) {}
     }
 
-    if (isInitialSetup || isForcedUpdate) {
-        if (isForcedUpdate) {
-            console.log('🔄 Forced update detected - cleaning and recloning...');
-            try { unlinkSync('.update_flag.json'); } catch (e) {}
-
-            const isWindows = process.platform === 'win32';
-            // Explicitly delete files and folders for clean update
-            const filesToDelete = ['package.json', 'package-lock.json'];
-            const dirsToDelete = ['src', 'node_modules'];
-            
-            filesToDelete.forEach(f => {
-                try { if (existsSync(f)) unlinkSync(f); } catch (e) {}
-            });
-            
-            dirsToDelete.forEach(d => {
-                try {
-                    if (existsSync(d)) {
-                        if (isWindows) {
-                            spawnSync('powershell', ['-Command', `Remove-Item ${d} -Recurse -Force`], { stdio: 'inherit' });
-                        } else {
-                            spawnSync('rm', ['-rf', d], { stdio: 'inherit' });
-                        }
-                    }
-                } catch (e) {}
-            });
-        } else {
-            console.log('🔧 Initial setup detected - cloning from GitHub...');
-        }
+    if (isInitialSetup) {
+        console.log('🔧 Setup needed - cloning from GitHub...');
         await cloneAndSetup();
     } else {
         // Start the main bot (src/index.js)
@@ -146,6 +119,11 @@ function startBot(entryPoint = 'src/index.js') {
     botProcess.on('exit', (code, signal) => {
         console.log(`🔄 Bot exited with code ${code}, signal ${signal}`);
         
+        if (existsSync('.restart_flag')) {
+            console.log('♻️ Restart flag detected - clearing flag and restarting...');
+            try { unlinkSync('.restart_flag'); } catch (e) {}
+        }
+
         // Always restart the bot process within the manager
         console.log('♻️ Restarting MATBOT...');
         startBot(entryPoint);

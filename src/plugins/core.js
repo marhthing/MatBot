@@ -57,16 +57,33 @@ export default {
       async execute(ctx) {
         // If the user says ".update now", handle it directly
         if (ctx.args && ctx.args[0] === 'now') {
-          await ctx.reply('🗑️ Preparing for update... Preserving .env, session, and index.js. Cleaning and recloning...');
+          await ctx.reply('🗑️ Cleaning project files (src, node_modules) and preparing for re-clone...');
+          
           const fs = await import('fs');
-          const path = await import('path');
-          const cwd = process.cwd();
+          const { execSync } = await import('child_process');
           
-          // Create the update flag for the manager
-          fs.writeFileSync(path.join(cwd, '.update_flag.json'), JSON.stringify({ timestamp: Date.now() }));
+          // Delete files/folders synchronously within the bot process
+          const dirsToDelete = ['src', 'node_modules'];
+          const filesToDelete = ['package.json', 'package-lock.json'];
           
-          // Exit to let manager handle the re-clone
-          setTimeout(() => process.exit(0), 1000);
+          filesToDelete.forEach(f => {
+            try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) {}
+          });
+          
+          dirsToDelete.forEach(d => {
+            try {
+              if (fs.existsSync(d)) {
+                if (process.platform === 'win32') {
+                  execSync(`powershell -Command "Remove-Item ${d} -Recurse -Force"`);
+                } else {
+                  execSync(`rm -rf ${d}`);
+                }
+              }
+            } catch (e) {}
+          });
+          
+          // Force exit immediately
+          process.exit(0);
           return;
         }
 
