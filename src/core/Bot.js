@@ -92,7 +92,13 @@ export default class Bot extends EventEmitter {
       await adapter.connect();
       this.adapters.set('whatsapp', adapter);
     } catch (error) {
-      this.logger.error({ error }, 'Failed to initialize WhatsApp');
+      this.logger.error({ 
+        message: error?.message, 
+        stack: error?.stack,
+        name: error?.name,
+        code: error?.code
+      }, 'Failed to initialize WhatsApp');
+      throw error;
     }
   }
 

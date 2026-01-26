@@ -13,9 +13,13 @@ import BaseAdapter from './BaseAdapter.js';
 import MessageContext from '../core/MessageContext.js';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import memoryStore from '../utils/memory.js';
 import { logIncoming, logOutgoing } from '../utils/debugMessageLogger.js';
 import readline from 'readline';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default class WhatsAppAdapter extends BaseAdapter {
   constructor(config) {
@@ -33,12 +37,17 @@ export default class WhatsAppAdapter extends BaseAdapter {
     this.pairingMethod = null;
     this.phoneNumber = null;
     this.isFirstPairingAttempt = true;
+    this.authFailures = 0;
+  }
+
+  // Always use the absolute session path for WhatsApp
+  getWhatsAppSessionPath() {
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    return path.join(projectRoot, 'session', 'whatsapp');
   }
 
   async connect() {
-    const sessionPath = path.join(this.config.paths.session, 'whatsapp');
-    
-    // Check if credentials exist
+    const sessionPath = this.getWhatsAppSessionPath();
     const credsPath = path.join(sessionPath, 'creds.json');
     const credsExist = fs.existsSync(credsPath);
     
@@ -64,7 +73,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
 
     // Clear auth directory on first pairing attempt for clean start
     if (this.isFirstPairingAttempt && this.pairingMethod === 'pairingCode') {
-      const files = fs.readdirSync(sessionPath);
+      const files = fs.existsSync(sessionPath) ? fs.readdirSync(sessionPath) : [];
       for (const file of files) {
         fs.unlinkSync(path.join(sessionPath, file));
       }
@@ -74,6 +83,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
   }
 
   async connectWithCredentials(sessionPath) {
+    sessionPath = this.getWhatsAppSessionPath();
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
     const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
@@ -101,6 +111,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
   }
 
   async connectWithAuth(sessionPath) {
+    sessionPath = this.getWhatsAppSessionPath();
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
     const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
@@ -129,6 +140,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
   }
 
   setupEventHandlers(saveCreds, sessionPath) {
+    sessionPath = this.getWhatsAppSessionPath();
     // Save credentials when updated
     this.client.ev.on('creds.update', saveCreds);
 
@@ -216,8 +228,33 @@ export default class WhatsAppAdapter extends BaseAdapter {
         
         // Handle authentication failure
         if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-          console.log('\n❌ Authentication failed - Please restart and try again\n');
-          process.exit(1);
+          this.authFailures++;
+          console.log(`\n❌ Authentication failed (${this.authFailures}/5)\n`);
+          
+          if (this.authFailures >= 5) {
+            const absSessionPath = sessionPath;
+            console.log('⚠️ Too many authentication failures. Deleting session and restarting process...');
+            console.log('Session path to delete:', absSessionPath);
+            try {
+              if (fs.existsSync(absSessionPath)) {
+                // Use synchronous removal to ensure it completes before exit
+                fs.rmSync(absSessionPath, { recursive: true, force: true });
+                console.log('✅ Session cleared.');
+              } else {
+                console.log('ℹ️ Session path not found, nothing to delete.');
+              }
+            } catch (err) {
+              console.error('❌ Failed to delete session folder:', err.message);
+            }
+            // Delay slightly to ensure file system operations are flushed
+            // Exit with code 0 so the workflow restarts cleanly
+            setTimeout(() => process.exit(0), 1000);
+          } else {
+            console.log('🔄 Attempting to reconnect within the same process...');
+            await delay(5000);
+            await this.connect();
+          }
+          return;
         }
         
         // Normal reconnection

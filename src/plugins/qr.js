@@ -1,17 +1,17 @@
 import QRCode from 'qrcode';
-import fs from 'fs';
+import fs from 'fs-extra';
 import path from 'path';
 
 export default {
   name: 'qrcode',
   description: 'QR Code Generator',
-  version: '1.0.0',
+  version: '1.1.0',
   author: 'MATDEV',
 
   commands: [
     {
       name: 'qr',
-      aliases: [],
+      aliases: ['qrcode'],
       description: 'Generate a QR code from text',
       usage: '.qr <text>',
       category: 'utility',
@@ -20,22 +20,34 @@ export default {
       groupOnly: false,
       cooldown: 3,
       async execute(ctx) {
-        if (!ctx.args.length) return await ctx.reply('❌ Please provide text to generate QR code.');
-        
-        const text = ctx.args.join(' ');
-        const tmpPath = path.resolve(process.cwd(), 'tmp', `qr_${Date.now()}.png`);
-        
         try {
-          await QRCode.toFile(tmpPath, text, {
-            color: { dark: '#000000', light: '#ffffff' },
-            width: 500
-          });
+          if (!ctx.args.length) {
+            return await ctx.reply('Please provide text to generate QR code.\n\nUsage: .qr <text or URL>');
+          }
           
-          await ctx.reply({ image: { url: tmpPath }, caption: `✅ QR Code for: ${text}` });
-          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+          const text = ctx.args.join(' ');
+
+          await ctx.react('⏳');
+
+          // Generate QR code as buffer in memory (no file save)
+          const qrBuffer = await QRCode.toBuffer(text, {
+            color: { dark: '#000000', light: '#ffffff' },
+            width: 500,
+            margin: 2
+          });
+
+          await ctx._adapter.sendMedia(ctx.chatId, qrBuffer, {
+            type: 'image',
+            mimetype: 'image/png',
+            caption: `QR Code for: ${text.length > 100 ? text.substring(0, 100) + '...' : text}`
+          });
+
+          await ctx.react('✅');
+          
         } catch (error) {
           console.error('QR Error:', error);
-          await ctx.reply('❌ Failed to generate QR code.');
+          await ctx.react('❌');
+          await ctx.reply('Failed to generate QR code. Please try again.');
         }
       }
     }
