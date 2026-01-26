@@ -55,41 +55,7 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        // If the user says ".update now", handle it directly
-        if (ctx.args && ctx.args[0] === 'now') {
-          await ctx.reply('updating...');
-          
-          const fs = await import('fs');
-          const { execSync } = await import('child_process');
-          const path = await import('path');
-          
-          // Delete everything except .env, session folder, and root index.js
-          const keep = ['.env', 'session', 'index.js'];
-          const cwd = process.cwd();
-          const all = fs.readdirSync(cwd);
-          for (const item of all) {
-            if (keep.includes(item)) continue;
-            try {
-              const full = path.join(cwd, item);
-              if (fs.lstatSync(full).isDirectory()) {
-                if (process.platform === 'win32') {
-                  execSync(`powershell -Command \"Remove-Item '${full}' -Recurse -Force\"`);
-                } else {
-                  execSync(`rm -rf '${full}'`);
-                }
-              } else {
-                fs.unlinkSync(full);
-              }
-            } catch (e) {}
-          }
-          
-          // Force exit immediately and start the root index.js (recloner) in the foreground (interactive)
-          execSync('node index.js', { stdio: 'inherit' });
-          process.exit(0);
-          return;
-        }
-
-        //await ctx.reply('🔍 Checking for updates...');
+        // Only check for updates, do not handle .update now logic here
         try {
           const { execSync } = await import('child_process');
           execSync('git fetch');
