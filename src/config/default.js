@@ -17,6 +17,12 @@ const requiredVars = {
   MAX_COMMAND_COOLDOWN: '3000',
   STICKER_PACK: 'MATDEV Bot',
   STICKER_AUTHOR: 'Bot',
+  // Auto features defaults
+  AUTO_TYPING: 'false',
+  ALWAYS_ONLINE: 'false',
+  AUTO_READ: 'false',
+  AUTO_REACT: 'false',
+  AUTO_STATUS_REACT: 'false',
 };
 // Ensure .env exists and is populated with all required variables
 let envContent = '';

@@ -76,13 +76,20 @@ export default class WhatsAppAdapter extends BaseAdapter {
   async connectWithCredentials(sessionPath) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
-    
+    const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
+    this.logger.info(`[WhatsAppAdapter] ALWAYS_ONLINE: ${process.env.ALWAYS_ONLINE}, alwaysOnline: ${alwaysOnline}`);
+    this.logger.info('[WhatsAppAdapter] makeWASocket options', {
+      markOnlineOnConnect: alwaysOnline,
+      shouldAlwaysSendPresence: alwaysOnline
+    });
     this.client = makeWASocket({
       auth: state,
       version,
       browser: Browsers.macOS('Chrome'),
       logger: this.baileysLogger,
       generateHighQualityLinkPreview: true,
+      markOnlineOnConnect: alwaysOnline, // <-- dynamic, should match ALWAYS_ONLINE
+      shouldAlwaysSendPresence: alwaysOnline, // <-- dynamic, should match ALWAYS_ONLINE
       getMessage: async (key) => {
         const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
         if (msg?.message) return msg;
@@ -96,7 +103,12 @@ export default class WhatsAppAdapter extends BaseAdapter {
   async connectWithAuth(sessionPath) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
-
+    const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
+    this.logger.info(`[WhatsAppAdapter] ALWAYS_ONLINE: ${process.env.ALWAYS_ONLINE}, alwaysOnline: ${alwaysOnline}`);
+    this.logger.info('[WhatsAppAdapter] makeWASocket options', {
+      markOnlineOnConnect: alwaysOnline,
+      shouldAlwaysSendPresence: alwaysOnline
+    });
     this.client = makeWASocket({
       auth: state,
       version,
@@ -104,6 +116,8 @@ export default class WhatsAppAdapter extends BaseAdapter {
       logger: this.baileysLogger,
       printQRInTerminal: false,
       generateHighQualityLinkPreview: true,
+      markOnlineOnConnect: alwaysOnline, // <-- dynamic, should match ALWAYS_ONLINE
+      shouldAlwaysSendPresence: alwaysOnline, // <-- dynamic, should match ALWAYS_ONLINE
       getMessage: async (key) => {
         const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
         if (msg?.message) return msg;
@@ -535,6 +549,40 @@ export default class WhatsAppAdapter extends BaseAdapter {
       text: newText,
       edit: key
     });
+  }
+
+  /**
+   * Send presence update (e.g., 'composing', 'recording', 'available', 'unavailable')
+   */
+  async sendPresence(chatId, type = 'composing') {
+    if (!this.client || typeof this.client.sendPresenceUpdate !== 'function') {
+      throw new Error('Baileys client not ready or sendPresenceUpdate not available');
+    }
+    // type: 'composing', 'recording', 'paused', 'available', 'unavailable'
+    return await this.client.sendPresenceUpdate(type, chatId);
+  }
+
+  /**
+   * Dynamically set always-online mode and update presence immediately
+   */
+  async setAlwaysOnline(value) {
+    this._alwaysOnline = value;
+    if (this.client && typeof this.client.sendPresenceUpdate === 'function') {
+      if (value) {
+        await this.client.sendPresenceUpdate('available');
+      } else {
+        await this.client.sendPresenceUpdate('unavailable');
+      }
+    }
+  }
+
+  /**
+   * Mark a message as read
+   */
+  async markRead(chatId, messageId) {
+    if (this.client && typeof this.client.readMessages === 'function') {
+      await this.client.readMessages([{ remoteJid: chatId, id: messageId }]);
+    }
   }
 
   async disconnect() {

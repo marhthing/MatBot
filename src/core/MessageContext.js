@@ -108,4 +108,24 @@ export default class MessageContext {
     if (!this.isGroup) return false;
     return await this._adapter.isGroupAdmin(this.chatId, userId);
   }
+
+  /**
+   * Send presence update (e.g., 'composing', 'recording', 'available', 'unavailable')
+   */
+  async presence(type = 'composing') {
+    if (typeof this._adapter.sendPresence === 'function') {
+      return await this._adapter.sendPresence(this.chatId, type);
+    } else {
+      throw new Error('Presence updates not supported for this platform');
+    }
+  }
+
+  /**
+   * Mark this message as read
+   */
+  async read() {
+    if (typeof this._adapter.markRead === 'function') {
+      await this._adapter.markRead(this.chatId, this.messageId);
+    }
+  }
 }

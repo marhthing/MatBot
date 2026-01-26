@@ -28,6 +28,7 @@ const isRestart = existsSync('.restart_flag');
     if (isInitialSetup || isForcedUpdate) {
         if (isForcedUpdate) {
             console.log('🔄 Forced update detected - recloning from GitHub...');
+            try { unlinkSync('.update_flag.json'); } catch (e) {}
         } else {
             console.log('🔧 Initial setup detected - cloning from GitHub...');
         }

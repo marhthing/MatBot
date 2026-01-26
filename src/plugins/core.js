@@ -83,11 +83,11 @@ export default {
         // .update now: force full reclone
         await ctx.reply('🔄 Forcing full update: recloning from GitHub and restarting...');
         try {
-          writeFileSync('.update_flag.json', '{}');
+          writeFileSync('.update_flag.json', JSON.stringify({ timestamp: Date.now() }));
         } catch (e) {
           console.error('Failed to write .update_flag.json:', e);
         }
-        setTimeout(() => process.exit(0), 500);
+        setTimeout(() => process.exit(0), 1000);
       }
     }
   ]
