@@ -122,8 +122,10 @@ function startBot(entryPoint = 'src/index.js') {
 
     botProcess.on('exit', (code, signal) => {
         console.log(`🔄 Bot exited with code ${code}, signal ${signal}`);
-        // Exit the manager process so an external process manager (like PM2) can restart it
-        process.exit(0);
+        
+        // Always restart the bot process within the manager
+        console.log('♻️ Restarting MATBOT...');
+        startBot(entryPoint);
     });
 
     botProcess.on('error', (error) => {

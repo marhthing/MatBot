@@ -36,13 +36,12 @@ export default {
       cooldown: 0,
       async execute(ctx) {
         await ctx.reply('♻️ Restarting...');
-        console.log('Restart command received, creating .restart_flag for manager.');
-        try {
-          writeFileSync('.restart_flag', '1');
-        } catch (e) {
-          console.error('Failed to write .restart_flag:', e);
+        console.log('Restart command received, exiting process to trigger manager restart.');
+        if (ctx.bot && typeof ctx.bot.restart === 'function') {
+           await ctx.bot.restart();
+        } else {
+           process.exit(0);
         }
-        setTimeout(() => process.exit(0), 500);
       }
     },
     {

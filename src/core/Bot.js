@@ -96,6 +96,12 @@ export default class Bot extends EventEmitter {
     }
   }
 
+  async restart() {
+    this.logger.info('Restarting bot...');
+    await this.stop();
+    process.exit(0);
+  }
+
   async initializeTelegram() {
     try {
       this.logger.info('Initializing Telegram...');
