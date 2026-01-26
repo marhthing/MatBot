@@ -72,7 +72,7 @@ export default {
     },
     {
       name: 'updatenow',
-      aliases: [], 
+      aliases: ['update now'], 
       description: 'Apply update if available (reclone only if update exists)',
       usage: '.update now',
       category: 'owner',
@@ -81,16 +81,23 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        // Run the .update logic and check the response
+        // Check if local git is up to date with remote, then reclone if not
         try {
           const { execSync } = await import('child_process');
           execSync('git fetch');
-          const status = execSync('git status -uno').toString();
-          if (status.includes('Your branch is up to date')) {
+          const local = execSync('git rev-parse HEAD').toString().trim();
+          let remote;
+          try {
+            remote = execSync('git rev-parse @{u}').toString().trim();
+          } catch (e) {
+            await ctx.reply('❌ Could not determine remote tracking branch. Is this a git repo with a remote?');
+            return;
+          }
+          if (local === remote) {
             await ctx.reply('✅ Bot is already up to date.');
             return;
           } else {
-            await ctx.reply('🗑️ Update available! Cleaning project files and preparing for re-clone...');
+            await ctx.reply('🗑️ Update available! updating....');
             const fs = await import('fs');
             const path = await import('path');
             const keep = ['.env', 'session', 'index.js'];
