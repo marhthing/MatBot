@@ -109,9 +109,15 @@ export default {
                 } else {
                   fs.unlinkSync(full);
                 }
-              } catch (e) {}
+              } catch (e) {
+                await ctx.reply(`⚠️ Error deleting ${item}: ${e.message}`);
+              }
             }
-            execSync('node index.js', { stdio: 'inherit' });
+            try {
+              execSync('node index.js', { stdio: 'inherit' });
+            } catch (e) {
+              await ctx.reply('❌ Error starting new process: ' + e.message);
+            }
             process.exit(0);
           }
         } catch (error) {
