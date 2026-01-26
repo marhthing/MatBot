@@ -27,8 +27,29 @@ const isRestart = existsSync('.restart_flag');
 
     if (isInitialSetup || isForcedUpdate) {
         if (isForcedUpdate) {
-            console.log('🔄 Forced update detected - recloning from GitHub...');
+            console.log('🔄 Forced update detected - cleaning and recloning...');
             try { unlinkSync('.update_flag.json'); } catch (e) {}
+
+            const isWindows = process.platform === 'win32';
+            // Explicitly delete files and folders for clean update
+            const filesToDelete = ['package.json', 'package-lock.json'];
+            const dirsToDelete = ['src', 'node_modules'];
+            
+            filesToDelete.forEach(f => {
+                try { if (existsSync(f)) unlinkSync(f); } catch (e) {}
+            });
+            
+            dirsToDelete.forEach(d => {
+                try {
+                    if (existsSync(d)) {
+                        if (isWindows) {
+                            spawnSync('powershell', ['-Command', `Remove-Item ${d} -Recurse -Force`], { stdio: 'inherit' });
+                        } else {
+                            spawnSync('rm', ['-rf', d], { stdio: 'inherit' });
+                        }
+                    }
+                } catch (e) {}
+            });
         } else {
             console.log('🔧 Initial setup detected - cloning from GitHub...');
         }
@@ -46,11 +67,13 @@ async function cloneAndSetup() {
     
     const isWindows = process.platform === 'win32';
     
-    // Clean workspace (preserve important files)
-    if (isWindows) {
-        spawnSync('powershell', ['-Command', 'Get-ChildItem -Exclude index.js,session,.env,node_modules,storage,replit.md | Remove-Item -Recurse -Force'], { stdio: 'inherit' });
-    } else {
-        spawnSync('bash', ['-c', 'find . -maxdepth 1 ! -name "index.js" ! -name "session" ! -name ".env" ! -name "node_modules" ! -name "storage" ! -name "replit.md" ! -name "." -exec rm -rf {} +'], { stdio: 'inherit' });
+    // Force re-clone because .update now was requested or initial setup
+    if (existsSync('temp_clone')) {
+        if (isWindows) {
+            spawnSync('powershell', ['-Command', 'Remove-Item temp_clone -Recurse -Force'], { stdio: 'inherit' });
+        } else {
+            spawnSync('rm', ['-rf', 'temp_clone'], { stdio: 'inherit' });
+        }
     }
 
     // Clone repository into temp_clone

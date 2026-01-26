@@ -47,7 +47,7 @@ export default {
     {
       name: 'update',
       aliases: [],
-      description: 'Check if an update is available',
+      description: 'Check for updates',
       usage: '.update',
       category: 'owner',
       ownerOnly: true,
@@ -55,31 +55,40 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        await ctx.reply('🔍 Checking for updates...');
-        let updateAvailable = false;
-        let updateInfo = '';
-        try {
-          // Check for git updates (assumes git repo)
-          const { execSync } = await import('child_process');
-          execSync('git fetch', { stdio: 'ignore' });
-          const local = execSync('git rev-parse HEAD').toString().trim();
-          const remote = execSync('git rev-parse @{u}').toString().trim();
-          if (local !== remote) {
-            updateAvailable = true;
-            updateInfo = 'A new update is available! Use .update now to apply.';
-          } else {
-            updateInfo = 'You are already up to date.';
-          }
-        } catch (e) {
-          updateInfo = 'Could not check for updates (not a git repo or no remote set).';
+        // If the user says ".update now", handle it directly
+        if (ctx.args && ctx.args[0] === 'now') {
+          await ctx.reply('🗑️ Preparing for update... Preserving .env, session, and index.js. Cleaning and recloning...');
+          const fs = await import('fs');
+          const path = await import('path');
+          const cwd = process.cwd();
+          
+          // Create the update flag for the manager
+          fs.writeFileSync(path.join(cwd, '.update_flag.json'), JSON.stringify({ timestamp: Date.now() }));
+          
+          // Exit to let manager handle the re-clone
+          setTimeout(() => process.exit(0), 1000);
+          return;
         }
-        await ctx.reply(updateInfo);
+
+        await ctx.reply('🔍 Checking for updates...');
+        try {
+          const { execSync } = await import('child_process');
+          execSync('git fetch');
+          const status = execSync('git status -uno').toString();
+          if (status.includes('Your branch is up to date')) {
+            await ctx.reply('✅ Bot is already up to date.');
+          } else {
+            await ctx.reply('🆕 Update available! Use `.update now` to apply.');
+          }
+        } catch (error) {
+          await ctx.reply('❌ Error checking for updates: ' + error.message);
+        }
       }
     },
     {
-      name: 'update now',
-      aliases: ['update now'],
-      description: 'Apply update if available (forces reclone)',
+      name: 'updatenow',
+      aliases: [], 
+      description: 'Apply update (forces reclone and cleans environment)',
       usage: '.update now',
       category: 'owner',
       ownerOnly: true,
@@ -87,54 +96,13 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        await ctx.reply('🔍 Checking for updates...');
-        let updateAvailable = false;
-        try {
-          const { execSync } = await import('child_process');
-          execSync('git fetch', { stdio: 'ignore' });
-          const local = execSync('git rev-parse HEAD').toString().trim();
-          const remote = execSync('git rev-parse @{u}').toString().trim();
-          if (local !== remote) {
-            updateAvailable = true;
-          }
-        } catch (e) {
-          await ctx.reply('Could not check for updates (not a git repo or no remote set).');
-          return;
+        const updateCmd = ctx.bot.commandRegistry.get('update');
+        if (updateCmd) {
+           // Manually trigger the "now" logic
+           ctx.args = ['now'];
+           return await updateCmd.execute(ctx);
         }
-        if (!updateAvailable) {
-          await ctx.reply('No update available. You are already up to date.');
-          return;
-        }
-        await ctx.reply('🗑️ Update found! Deleting important files and restarting bot (will force reclone)...');
-        const fs = await import('fs');
-        const path = await import('path');
-        const cwd = process.cwd();
-        const targets = [
-          'package.json',
-          'package-lock.json',
-          'node_modules',
-          'src',
-          'storage',
-          'tmp',
-          'README.md',
-          // Do NOT include '.git' so git repo is preserved
-        ];
-        for (const target of targets) {
-          if (target === '.git') continue; // Never delete .git, even if present
-          const targetPath = path.resolve(cwd, target);
-          if (fs.existsSync(targetPath)) {
-            try {
-              if (fs.lstatSync(targetPath).isDirectory()) {
-                fs.rmSync(targetPath, { recursive: true, force: true });
-              } else {
-                fs.unlinkSync(targetPath);
-              }
-            } catch (e) {
-              // Ignore errors
-            }
-          }
-        }
-        setTimeout(() => process.exit(0), 1000);
+        await ctx.reply('❌ Internal error: update command not found.');
       }
     }
   ]
