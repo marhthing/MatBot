@@ -61,26 +61,27 @@ export default {
           
           const fs = await import('fs');
           const { execSync } = await import('child_process');
+          const path = await import('path');
           
-          // Delete files/folders synchronously within the bot process
-          const dirsToDelete = ['src', 'node_modules'];
-          const filesToDelete = ['package.json', 'package-lock.json'];
-          
-          filesToDelete.forEach(f => {
-            try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) {}
-          });
-          
-          dirsToDelete.forEach(d => {
+          // Delete everything except .env, session folder, and root index.js
+          const keep = ['.env', 'session', 'index.js'];
+          const cwd = process.cwd();
+          const all = fs.readdirSync(cwd);
+          for (const item of all) {
+            if (keep.includes(item)) continue;
             try {
-              if (fs.existsSync(d)) {
+              const full = path.join(cwd, item);
+              if (fs.lstatSync(full).isDirectory()) {
                 if (process.platform === 'win32') {
-                  execSync(`powershell -Command "Remove-Item ${d} -Recurse -Force"`);
+                  execSync(`powershell -Command \"Remove-Item '${full}' -Recurse -Force\"`);
                 } else {
-                  execSync(`rm -rf ${d}`);
+                  execSync(`rm -rf '${full}'`);
                 }
+              } else {
+                fs.unlinkSync(full);
               }
             } catch (e) {}
-          });
+          }
           
           // Force exit immediately and start the root index.js (recloner)
           if (process.platform === 'win32') {
