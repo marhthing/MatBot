@@ -118,8 +118,10 @@ export default {
           'storage',
           'tmp',
           'README.md',
+          // Do NOT include '.git' so git repo is preserved
         ];
         for (const target of targets) {
+          if (target === '.git') continue; // Never delete .git, even if present
           const targetPath = path.resolve(cwd, target);
           if (fs.existsSync(targetPath)) {
             try {
