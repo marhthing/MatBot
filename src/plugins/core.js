@@ -123,6 +123,45 @@ export default {
         }
         await ctx.reply('❌ Internal error: update command not found.');
       }
+    },
+    {
+      name: 'updateforce',
+      aliases: ['update force'],
+      description: 'Force reclone and clean environment, regardless of update status',
+      usage: '.update force',
+      category: 'owner',
+      ownerOnly: true,
+      adminOnly: false,
+      groupOnly: false,
+      cooldown: 0,
+      async execute(ctx) {
+        await ctx.reply('🗑️ Forcing reclone and cleaning project files (src, node_modules)...');
+        const fs = await import('fs');
+        const { execSync } = await import('child_process');
+        const path = await import('path');
+        // Delete everything except .env, session folder, and root index.js
+        const keep = ['.env', 'session', 'index.js'];
+        const cwd = process.cwd();
+        const all = fs.readdirSync(cwd);
+        for (const item of all) {
+          if (keep.includes(item)) continue;
+          try {
+            const full = path.join(cwd, item);
+            if (fs.lstatSync(full).isDirectory()) {
+              if (process.platform === 'win32') {
+                execSync(`powershell -Command \"Remove-Item '${full}' -Recurse -Force\"`);
+              } else {
+                execSync(`rm -rf '${full}'`);
+              }
+            } else {
+              fs.unlinkSync(full);
+            }
+          } catch (e) {}
+        }
+        // Start the root index.js in the foreground (interactive)
+        execSync('node index.js', { stdio: 'inherit' });
+        process.exit(0);
+      }
     }
   ]
 };
