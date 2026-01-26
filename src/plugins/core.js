@@ -57,7 +57,7 @@ export default {
       async execute(ctx) {
         // If the user says ".update now", handle it directly
         if (ctx.args && ctx.args[0] === 'now') {
-          await ctx.reply('🗑️ Cleaning project files (src, node_modules) and preparing for re-clone...');
+          await ctx.reply('updating...');
           
           const fs = await import('fs');
           const { execSync } = await import('child_process');
@@ -135,7 +135,7 @@ export default {
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        await ctx.reply('🗑️ Forcing reclone and cleaning project files (src, node_modules)...');
+        await ctx.reply('Force updating.....');
         const fs = await import('fs');
         const { execSync } = await import('child_process');
         const path = await import('path');
