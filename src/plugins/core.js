@@ -70,7 +70,7 @@ export default {
           return;
         }
 
-        await ctx.reply('🔍 Checking for updates...');
+        //await ctx.reply('🔍 Checking for updates...');
         try {
           const { execSync } = await import('child_process');
           execSync('git fetch');
