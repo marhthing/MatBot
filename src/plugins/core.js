@@ -47,20 +47,69 @@ export default {
     },
     {
       name: 'update',
-      aliases: ['update now'],
-      description: 'Delete important files and restart the bot (forces reclone)',
-      usage: '.update or .update now',
+      aliases: [],
+      description: 'Check if an update is available',
+      usage: '.update',
       category: 'owner',
       ownerOnly: true,
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
       async execute(ctx) {
-        await ctx.reply('🗑️ Deleting important files and restarting bot (will force reclone)...');
+        await ctx.reply('🔍 Checking for updates...');
+        let updateAvailable = false;
+        let updateInfo = '';
+        try {
+          // Check for git updates (assumes git repo)
+          const { execSync } = await import('child_process');
+          execSync('git fetch', { stdio: 'ignore' });
+          const local = execSync('git rev-parse HEAD').toString().trim();
+          const remote = execSync('git rev-parse @{u}').toString().trim();
+          if (local !== remote) {
+            updateAvailable = true;
+            updateInfo = 'A new update is available! Use .update now to apply.';
+          } else {
+            updateInfo = 'You are already up to date.';
+          }
+        } catch (e) {
+          updateInfo = 'Could not check for updates (not a git repo or no remote set).';
+        }
+        await ctx.reply(updateInfo);
+      }
+    },
+    {
+      name: 'update now',
+      aliases: ['update now'],
+      description: 'Apply update if available (forces reclone)',
+      usage: '.update now',
+      category: 'owner',
+      ownerOnly: true,
+      adminOnly: false,
+      groupOnly: false,
+      cooldown: 0,
+      async execute(ctx) {
+        await ctx.reply('🔍 Checking for updates...');
+        let updateAvailable = false;
+        try {
+          const { execSync } = await import('child_process');
+          execSync('git fetch', { stdio: 'ignore' });
+          const local = execSync('git rev-parse HEAD').toString().trim();
+          const remote = execSync('git rev-parse @{u}').toString().trim();
+          if (local !== remote) {
+            updateAvailable = true;
+          }
+        } catch (e) {
+          await ctx.reply('Could not check for updates (not a git repo or no remote set).');
+          return;
+        }
+        if (!updateAvailable) {
+          await ctx.reply('No update available. You are already up to date.');
+          return;
+        }
+        await ctx.reply('🗑️ Update found! Deleting important files and restarting bot (will force reclone)...');
         const fs = await import('fs');
         const path = await import('path');
         const cwd = process.cwd();
-        // List of files/folders to delete
         const targets = [
           'package.json',
           'package-lock.json',
