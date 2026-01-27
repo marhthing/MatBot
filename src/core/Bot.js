@@ -8,6 +8,7 @@ import MediaHandler from '../utils/mediaHandler.js';
 import WhatsAppAdapter from '../adapters/WhatsAppAdapter.js';
 import TelegramAdapter from '../adapters/TelegramAdapter.js';
 import fs from 'fs';
+import path from 'path';
 import pendingActions from '../utils/pendingActions.js';
 
 export default class Bot extends EventEmitter {
@@ -41,6 +42,13 @@ export default class Bot extends EventEmitter {
         fs.mkdirSync(dir, { recursive: true });
         this.logger.info(`Created directory: ${dir}`);
       }
+    }
+
+    // Ensure storage.json exists
+    const storageFile = path.join(this.config.paths.storage, 'storage.json');
+    if (!fs.existsSync(storageFile)) {
+      fs.writeFileSync(storageFile, '{}', 'utf-8');
+      this.logger.info(`Created file: ${storageFile}`);
     }
   }
 
