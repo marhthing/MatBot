@@ -457,4 +457,32 @@ export default class WhatsAppAdapter extends BaseAdapter {
       return null;
     }
   }
+
+  // Send media (image, video, audio, document) to a chat
+  async sendMedia(chatId, mediaBuffer, mediaType, options = {}) {
+    // mediaType: 'image', 'video', 'audio', 'document'
+    let message = {};
+    if (mediaType === 'image') {
+      message.image = mediaBuffer;
+      if (options.caption) message.caption = options.caption;
+    } else if (mediaType === 'video') {
+      message.video = mediaBuffer;
+      if (options.caption) message.caption = options.caption;
+      if (options.gifPlayback) message.gifPlayback = true;
+    } else if (mediaType === 'audio') {
+      message.audio = mediaBuffer;
+      message.mimetype = 'audio/mp4';
+      if (options.ptt) message.ptt = true;
+    } else if (mediaType === 'document') {
+      message.document = mediaBuffer;
+      message.mimetype = options.mimetype || 'application/octet-stream';
+      if (options.fileName) message.fileName = options.fileName;
+    } else {
+      throw new Error('Unsupported media type: ' + mediaType);
+    }
+    if (options.quoted) message.quoted = { key: { id: options.quoted, remoteJid: chatId } };
+    const sent = await this.client.sendMessage(chatId, message);
+    if (sent?.key?.id) memoryStore.saveMessage('whatsapp', chatId, sent.key.id, sent);
+    return sent;
+  }
 }
