@@ -43,6 +43,16 @@ export default {
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
+        if (!ctx.isAdmin) {
+          return ctx.reply('You are not an admin.');
+        }
+        // Check if bot is admin
+        const botId = ctx.platformAdapter.client.user?.id || ctx.platformAdapter.client.user?.jid;
+        const groupMetadata = await ctx.platformAdapter.client.groupMetadata(ctx.chatId);
+        const botParticipant = groupMetadata.participants.find(p => p.id === botId);
+        if (!botParticipant || !botParticipant.admin) {
+          return ctx.reply('I am not an admin in this group.');
+        }
         let userToPromote;
         
         if (ctx.quoted) {
@@ -69,6 +79,16 @@ export default {
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
+        if (!ctx.isAdmin) {
+          return ctx.reply('You are not an admin.');
+        }
+        // Check if bot is admin
+        const botId = ctx.platformAdapter.client.user?.id || ctx.platformAdapter.client.user?.jid;
+        const groupMetadata = await ctx.platformAdapter.client.groupMetadata(ctx.chatId);
+        const botParticipant = groupMetadata.participants.find(p => p.id === botId);
+        if (!botParticipant || !botParticipant.admin) {
+          return ctx.reply('I am not an admin in this group.');
+        }
         let userToDemote;
         
         if (ctx.quoted) {
@@ -95,6 +115,16 @@ export default {
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
+        if (!ctx.isAdmin) {
+          return ctx.reply('You are not an admin.');
+        }
+        // Check if bot is admin
+        const botId = ctx.platformAdapter.client.user?.id || ctx.platformAdapter.client.user?.jid;
+        const groupMetadata = await ctx.platformAdapter.client.groupMetadata(ctx.chatId);
+        const botParticipant = groupMetadata.participants.find(p => p.id === botId);
+        if (!botParticipant || !botParticipant.admin) {
+          return ctx.reply('I am not an admin in this group.');
+        }
         let userToKick;
         
         if (ctx.quoted) {

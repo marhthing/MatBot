@@ -299,7 +299,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
         
         if (editedMessageContent && update.key) {
           try {
-            this.logger.info({ key: update.key }, 'Processing edited message');
+            // this.logger.info({ key: update.key }, 'Processing edited message');
             // Build a message object from the edited content
             const editedMsg = {
               key: update.key,
