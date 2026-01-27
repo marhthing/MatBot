@@ -460,25 +460,32 @@ export default class WhatsAppAdapter extends BaseAdapter {
 
   // Send media (image, video, audio, document) to a chat
   async sendMedia(chatId, mediaBuffer, mediaType, options = {}) {
-    // mediaType: 'image', 'video', 'audio', 'document'
+    // Support both string and object for mediaType
+    let type = mediaType;
+    let mimetype = options.mimetype;
+    if (typeof mediaType === 'object' && mediaType !== null) {
+      type = mediaType.type || mediaType.mediaType || mediaType.kind;
+      if (mediaType.mimetype) mimetype = mediaType.mimetype;
+    }
     let message = {};
-    if (mediaType === 'image') {
+    if (type === 'image') {
       message.image = mediaBuffer;
       if (options.caption) message.caption = options.caption;
-    } else if (mediaType === 'video') {
+    } else if (type === 'video') {
       message.video = mediaBuffer;
       if (options.caption) message.caption = options.caption;
       if (options.gifPlayback) message.gifPlayback = true;
-    } else if (mediaType === 'audio') {
+      if (mimetype) message.mimetype = mimetype;
+    } else if (type === 'audio') {
       message.audio = mediaBuffer;
-      message.mimetype = 'audio/mp4';
+      message.mimetype = mimetype || 'audio/mp4';
       if (options.ptt) message.ptt = true;
-    } else if (mediaType === 'document') {
+    } else if (type === 'document') {
       message.document = mediaBuffer;
-      message.mimetype = options.mimetype || 'application/octet-stream';
+      message.mimetype = mimetype || 'application/octet-stream';
       if (options.fileName) message.fileName = options.fileName;
     } else {
-      throw new Error('Unsupported media type: ' + mediaType);
+      throw new Error('Unsupported media type: ' + JSON.stringify(mediaType));
     }
     if (options.quoted) message.quoted = { key: { id: options.quoted, remoteJid: chatId } };
     const sent = await this.client.sendMessage(chatId, message);
