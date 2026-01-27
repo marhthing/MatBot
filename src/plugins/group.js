@@ -3,6 +3,54 @@
  */
 import { jidNormalizedUser } from '@whiskeysockets/baileys';
 
+/**
+ * Find participant in group using robust matching (supports both LID and PN formats)
+ */
+function findParticipant(participants, userId, userLid) {
+  const userPhone = userId ? userId.split('@')[0].replace(/[^\d]/g, '') : null;
+  const normalizedUserId = userId ? jidNormalizedUser(userId) : null;
+  const normalizedUserLid = userLid ? jidNormalizedUser(userLid) : null;
+  
+  return participants.find(p => {
+    const pId = jidNormalizedUser(p.id);
+    const pLid = p.lid ? jidNormalizedUser(p.lid) : null;
+    const pPhoneFromId = p.id ? p.id.split('@')[0].replace(/[^\d]/g, '') : null;
+    const pPhoneFromField = p.phoneNumber ? p.phoneNumber.replace(/[^\d]/g, '') : null;
+    
+    // Match by normalized JID
+    if (pId === normalizedUserId) return true;
+    // Match by LID
+    if (pLid === normalizedUserId) return true;
+    if (normalizedUserLid && pId === normalizedUserLid) return true;
+    if (normalizedUserLid && pLid === normalizedUserLid) return true;
+    // Match by phone number
+    if (pPhoneFromId && userPhone && pPhoneFromId === userPhone) return true;
+    if (pPhoneFromField && userPhone && pPhoneFromField === userPhone) return true;
+    
+    return false;
+  });
+}
+
+/**
+ * Find participant by phone number and return their actual group ID (LID format)
+ */
+function findParticipantByPhone(participants, phoneNumber) {
+  const cleanPhone = phoneNumber.replace(/[^\d]/g, '');
+  
+  return participants.find(p => {
+    // Check phoneNumber field (present when id is LID)
+    if (p.phoneNumber) {
+      const pPhone = p.phoneNumber.replace(/[^\d@s.whatsapp.net]/g, '').replace('@swhatsappnet', '');
+      if (pPhone === cleanPhone) return true;
+    }
+    // Check if id itself contains the phone number (PN format)
+    const pPhoneFromId = p.id ? p.id.split('@')[0].replace(/[^\d]/g, '') : null;
+    if (pPhoneFromId === cleanPhone) return true;
+    
+    return false;
+  });
+}
+
 export default {
   name: 'group',
   description: 'Group management commands',
@@ -65,11 +113,18 @@ export default {
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
-        if (!ctx.quoted || ctx.quoted.type !== 'image') {
+        const quotedImage = ctx.quoted?.message?.imageMessage || 
+                          ctx.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+        
+        if (!quotedImage) {
           return ctx.reply('Please reply to an image with .gpp');
         }
         try {
-          const buffer = await ctx.platformAdapter.downloadMedia(ctx.quoted);
+          const buffer = await ctx.platformAdapter.downloadMedia({
+            raw: {
+              message: { imageMessage: quotedImage }
+            }
+          });
           await ctx.platformAdapter.client.updateProfilePicture(ctx.chatId, buffer);
           await ctx.reply('✅ Group profile picture updated.');
         } catch (error) {
@@ -136,28 +191,39 @@ export default {
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
-        if (!ctx.isAdmin) {
-          return ctx.reply('You are not an admin.');
-        }
-        // Check if bot is admin (normalize JIDs for comparison)
         const botId = ctx.platformAdapter.client.user?.id || ctx.platformAdapter.client.user?.jid;
+        const botLid = ctx.platformAdapter.client.user?.lid;
         const groupMetadata = await ctx.platformAdapter.client.groupMetadata(ctx.chatId);
-        const botParticipant = groupMetadata.participants.find(p => jidNormalizedUser(p.id) === jidNormalizedUser(botId));
+        
+        const botParticipant = findParticipant(groupMetadata.participants, botId, botLid);
+        
         if (!botParticipant || !botParticipant.admin) {
           return ctx.reply('I am not an admin in this group.');
         }
-        let userToPromote;
+        
+        let targetParticipant;
         
         if (ctx.quoted) {
-          userToPromote = ctx.quoted.senderId;
+          // Find participant by sender ID from quoted message
+          targetParticipant = findParticipant(groupMetadata.participants, ctx.quoted.senderId, null);
+        } else if (ctx.mentions && ctx.mentions.length > 0) {
+          // Find participant by mention
+          targetParticipant = findParticipant(groupMetadata.participants, ctx.mentions[0], null);
         } else if (ctx.args[0]) {
-          userToPromote = ctx.args[0].replace(/[^\d]/g, '') + '@s.whatsapp.net';
+          // Find participant by phone number
+          const phoneNumber = ctx.args[0].replace(/[^\d]/g, '');
+          targetParticipant = findParticipantByPhone(groupMetadata.participants, phoneNumber);
         } else {
           return ctx.reply('Please mention a user or reply to their message.');
         }
 
+        if (!targetParticipant) {
+          return ctx.reply('User not found in this group.');
+        }
+
         try {
-          await ctx.platformAdapter.client.groupParticipantsUpdate(ctx.chatId, [userToPromote], 'promote');
+          // Use the participant's actual ID (LID format) from group metadata
+          await ctx.platformAdapter.client.groupParticipantsUpdate(ctx.chatId, [targetParticipant.id], 'promote');
           await ctx.reply(`✅ User promoted to admin.`);
         } catch (error) {
           await ctx.reply(`❌ Failed to promote: ${error.message}`);
@@ -172,28 +238,39 @@ export default {
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
-        if (!ctx.isAdmin) {
-          return ctx.reply('You are not an admin.');
-        }
-        // Check if bot is admin (normalize JIDs for comparison)
         const botId = ctx.platformAdapter.client.user?.id || ctx.platformAdapter.client.user?.jid;
+        const botLid = ctx.platformAdapter.client.user?.lid;
         const groupMetadata = await ctx.platformAdapter.client.groupMetadata(ctx.chatId);
-        const botParticipant = groupMetadata.participants.find(p => jidNormalizedUser(p.id) === jidNormalizedUser(botId));
+        const botParticipant = findParticipant(groupMetadata.participants, botId, botLid);
+        
         if (!botParticipant || !botParticipant.admin) {
           return ctx.reply('I am not an admin in this group.');
         }
-        let userToDemote;
+        
+        let targetParticipant;
         
         if (ctx.quoted) {
-          userToDemote = ctx.quoted.senderId;
+          targetParticipant = findParticipant(groupMetadata.participants, ctx.quoted.senderId, null);
+        } else if (ctx.mentions && ctx.mentions.length > 0) {
+          targetParticipant = findParticipant(groupMetadata.participants, ctx.mentions[0], null);
         } else if (ctx.args[0]) {
-          userToDemote = ctx.args[0].replace(/[^\d]/g, '') + '@s.whatsapp.net';
+          const phoneNumber = ctx.args[0].replace(/[^\d]/g, '');
+          targetParticipant = findParticipantByPhone(groupMetadata.participants, phoneNumber);
         } else {
           return ctx.reply('Please mention a user or reply to their message.');
         }
 
+        if (!targetParticipant) {
+          return ctx.reply('User not found in this group.');
+        }
+
+        // Check if target is superadmin - only superadmins can demote superadmins
+        if (targetParticipant.admin === 'superadmin') {
+          return ctx.reply('Cannot demote superadmin. Only the group creator can demote superadmins.');
+        }
+
         try {
-          await ctx.platformAdapter.client.groupParticipantsUpdate(ctx.chatId, [userToDemote], 'demote');
+          await ctx.platformAdapter.client.groupParticipantsUpdate(ctx.chatId, [targetParticipant.id], 'demote');
           await ctx.reply(`✅ User demoted from admin.`);
         } catch (error) {
           await ctx.reply(`❌ Failed to demote: ${error.message}`);
@@ -202,34 +279,45 @@ export default {
     },
     {
       name: 'kick',
+      aliases: ['remove'],
       description: 'Remove a user from the group',
       usage: '.kick @user',
       category: 'group',
       groupOnly: true,
       adminOnly: true,
       async execute(ctx) {
-        if (!ctx.isAdmin) {
-          return ctx.reply('You are not an admin.');
-        }
-        // Check if bot is admin (normalize JIDs for comparison)
         const botId = ctx.platformAdapter.client.user?.id || ctx.platformAdapter.client.user?.jid;
+        const botLid = ctx.platformAdapter.client.user?.lid;
         const groupMetadata = await ctx.platformAdapter.client.groupMetadata(ctx.chatId);
-        const botParticipant = groupMetadata.participants.find(p => jidNormalizedUser(p.id) === jidNormalizedUser(botId));
+        const botParticipant = findParticipant(groupMetadata.participants, botId, botLid);
+        
         if (!botParticipant || !botParticipant.admin) {
           return ctx.reply('I am not an admin in this group.');
         }
-        let userToKick;
+        
+        let targetParticipant;
         
         if (ctx.quoted) {
-          userToKick = ctx.quoted.senderId;
+          targetParticipant = findParticipant(groupMetadata.participants, ctx.quoted.senderId, null);
+        } else if (ctx.mentions && ctx.mentions.length > 0) {
+          targetParticipant = findParticipant(groupMetadata.participants, ctx.mentions[0], null);
         } else if (ctx.args[0]) {
-          userToKick = ctx.args[0].replace(/[^\d]/g, '') + '@s.whatsapp.net';
+          const phoneNumber = ctx.args[0].replace(/[^\d]/g, '');
+          targetParticipant = findParticipantByPhone(groupMetadata.participants, phoneNumber);
         } else {
           return ctx.reply('Please mention a user or reply to their message.');
         }
 
+        if (!targetParticipant) {
+          return ctx.reply('User not found in this group.');
+        }
+
+        if (targetParticipant.admin === 'superadmin') {
+          return ctx.reply('Cannot kick the group creator (superadmin).');
+        }
+
         try {
-          await ctx.platformAdapter.client.groupParticipantsUpdate(ctx.chatId, [userToKick], 'remove');
+          await ctx.platformAdapter.client.groupParticipantsUpdate(ctx.chatId, [targetParticipant.id], 'remove');
           await ctx.reply(`✅ User removed from group.`);
         } catch (error) {
           await ctx.reply(`❌ Failed to kick: ${error.message}`);

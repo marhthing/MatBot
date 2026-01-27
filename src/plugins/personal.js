@@ -16,11 +16,18 @@ export default {
       category: 'personal',
       ownerOnly: true,
       async execute(ctx) {
-        if (!ctx.quoted || (ctx.quoted.type !== 'image' && ctx.quoted.media?.type !== 'image')) {
+        const quotedImage = ctx.quoted?.message?.imageMessage || 
+                          ctx.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+        
+        if (!quotedImage) {
           return ctx.reply('Please reply to an image with .setpp');
         }
         try {
-          const buffer = await ctx.platformAdapter.downloadMedia(ctx.quoted);
+          const buffer = await ctx.platformAdapter.downloadMedia({
+            raw: {
+              message: { imageMessage: quotedImage }
+            }
+          });
           const botId = jidNormalizedUser(ctx.platformAdapter.client.user.id);
           await ctx.platformAdapter.client.updateProfilePicture(botId, buffer);
           await ctx.reply('✅ Profile picture updated successfully.');

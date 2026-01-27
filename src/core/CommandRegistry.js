@@ -150,15 +150,16 @@ export default class CommandRegistry {
     // --- END NEW LOGIC ---
 
     // Check permissions for non-owners
-    if (!isOwner && !allow) {
+    if (!isOwner) {
       if (command.ownerOnly) {
-        // If not allowed by allow/allowedUsers/allowedGroups, skip ownerOnly check
         return;
       }
       if (command.adminOnly && !messageContext.isAdmin) {
+        await messageContext.reply('❌ This command is for admins only.');
         return;
       }
       if (command.groupOnly && !messageContext.isGroup) {
+        await messageContext.reply('❌ This command can only be used in groups.');
         return;
       }
     }
