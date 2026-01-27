@@ -170,22 +170,37 @@ export default class Bot extends EventEmitter {
     this.emit('message', messageContext);
 
     for (const handler of this.commandRegistry.getMessageHandlers()) {
-      await handler(messageContext);
+      try {
+        await handler(messageContext);
+      } catch (err) {
+        this.logger.error({ err }, '[handleMessage] Error in message handler');
+      }
     }
 
     if (messageContext.command) {
-      const rateLimitResult = this.rateLimiter.check(messageContext.senderId, messageContext.platform);
-      
-      if (!rateLimitResult.allowed) {
-        if (rateLimitResult.reason === 'temporarily_blocked') {
-          await messageContext.reply(`You are temporarily blocked from using commands. Try again in ${rateLimitResult.resetIn} seconds.`);
-        } else {
-          await messageContext.reply(`Slow down! You can use ${rateLimitResult.remaining} more command(s). Reset in ${rateLimitResult.resetIn} seconds.`);
+      try {
+        // Check for owner override on adminOnly commands
+        const registry = this.commandRegistry;
+        const cmd = registry.get(messageContext.command);
+        if (cmd && cmd.adminOnly && messageContext.isOwner && messageContext.isGroup) {
+          messageContext.isAdmin = true;
         }
-        return;
-      }
 
-      await this.commandRegistry.execute(messageContext);
+        const rateLimitResult = this.rateLimiter.check(messageContext.senderId, messageContext.platform);
+        
+        if (!rateLimitResult.allowed) {
+          if (rateLimitResult.reason === 'temporarily_blocked') {
+            await messageContext.reply(`You are temporarily blocked from using commands. Try again in ${rateLimitResult.resetIn} seconds.`);
+          } else {
+            await messageContext.reply(`Slow down! You can use ${rateLimitResult.remaining} more command(s). Reset in ${rateLimitResult.resetIn} seconds.`);
+          }
+          return;
+        }
+
+        await this.commandRegistry.execute(messageContext);
+      } catch (err) {
+        this.logger.error({ err, command: messageContext.command }, '[handleMessage] Error executing command');
+      }
     }
   }
 

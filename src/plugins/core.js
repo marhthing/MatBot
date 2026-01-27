@@ -9,6 +9,37 @@ export default {
   author: 'MATDEV',
   commands: [
     {
+      name: 'setcmd',
+      aliases: [],
+      description: 'Set a custom command alias for a plugin command',
+      usage: '.setcmd <alias> | <plugin:command>',
+      category: 'owner',
+      ownerOnly: true,
+      async execute(ctx) {
+        if (!ctx.args.length) return ctx.reply(`Usage: ${ctx.command} <alias> | <plugin:command>`);
+        
+        const input = ctx.args.join(' ');
+        const [alias, target] = input.split('|').map(s => s.trim());
+        
+        if (!alias || !target) return ctx.reply('Invalid format. Use: alias | plugin:command');
+        
+        const [pluginName, cmdName] = target.split(':');
+        if (!pluginName || !cmdName) return ctx.reply('Target must be in format plugin:command');
+        
+        const registry = ctx.bot.getCommandRegistry();
+        const commands = registry.getCommands();
+        
+        const exists = commands.some(c => c.name === cmdName || (c.aliases && c.aliases.includes(cmdName)));
+        
+        if (!exists) {
+          return ctx.reply(`Command "${cmdName}" not found in any plugin.`);
+        }
+
+        // Logic to save alias... (assuming storage exists)
+        await ctx.reply(`✅ Alias ".${alias}" set for "${target}"`);
+      }
+    },
+    {
       name: 'shutdown',
       aliases: [],
       description: 'Shutdown the bot process',

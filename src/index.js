@@ -68,7 +68,10 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error({ reason, promise }, 'Unhandled Rejection');
+  const errorDetails = reason instanceof Error 
+    ? { message: reason.message, stack: reason.stack, name: reason.name }
+    : { reason: String(reason) };
+  logger.error(errorDetails, 'Unhandled Rejection');
 });
 
 // Start the bot

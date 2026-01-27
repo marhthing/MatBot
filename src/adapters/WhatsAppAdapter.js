@@ -289,9 +289,27 @@ export default class WhatsAppAdapter extends BaseAdapter {
       }
     });
 
-    // Handle protocol messages
+    // Handle edited messages
     this.client.ev.on('messages.update', async (updates) => {
       for (const update of updates) {
+        // Check for edited message (editedMessage field)
+        const editedMessage = update.update?.editedMessage;
+        if (editedMessage && update.key) {
+          try {
+            this.logger.debug({ key: update.key }, 'Processing edited message');
+            // Build a message object from the edited content
+            const editedMsg = {
+              key: update.key,
+              message: editedMessage,
+              messageTimestamp: Date.now() / 1000
+            };
+            memoryStore.saveMessage('whatsapp', update.key.remoteJid, update.key.id, editedMsg);
+            const messageContext = await this.parseMessage(editedMsg);
+            this.emitMessage(messageContext);
+          } catch (error) {
+            this.logger.error({ error }, 'Failed to parse edited WhatsApp message');
+          }
+        }
         this.emit('protocol', update);
       }
     });
@@ -379,14 +397,17 @@ export default class WhatsAppAdapter extends BaseAdapter {
     let text = msg.message?.conversation ||
                msg.message?.extendedTextMessage?.text ||
                msg.message?.imageMessage?.caption ||
-               msg.message?.videoMessage?.caption || '';
+               msg.message?.videoMessage?.caption || 
+               msg.message?.protocolMessage?.editedMessage?.conversation ||
+               msg.message?.protocolMessage?.editedMessage?.extendedTextMessage?.text || '';
 
     // Parse command if message starts with prefix
     let command = null;
     let args = [];
     
     if (text.startsWith(this.config.prefix)) {
-      const parts = text.slice(this.config.prefix.length).trim().split(/\s+/);
+      const cleanedText = text.slice(this.config.prefix.length).trimStart();
+      const parts = cleanedText.split(/\s+/);
       command = parts[0].toLowerCase();
       args = parts.slice(1);
     }
