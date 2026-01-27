@@ -427,8 +427,16 @@ export default class WhatsAppAdapter extends BaseAdapter {
           jidNormalizedUser(p.id) === senderId
         );
         isAdmin = participant?.admin === 'admin' || participant?.admin === 'superadmin';
+        // Log for debugging if owner is not detected as admin
+        if (isOwner && !isAdmin) {
+          this.logger.debug({ senderId, participants: groupMetadata.participants.map(p => p.id) }, 'Owner not detected as admin in metadata');
+          // Fallback: If owner, always treat as admin for group commands
+          isAdmin = true;
+        }
       } catch (error) {
         this.logger.error({ error }, 'Failed to get group metadata');
+        // Fallback for owner if metadata fails
+        if (isOwner) isAdmin = true;
       }
     }
 
