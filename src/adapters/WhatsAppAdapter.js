@@ -15,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import memoryStore from '../utils/memory.js';
-import { logIncoming, logOutgoing } from '../utils/debugMessageLogger.js';
+// import { logIncoming, logOutgoing } from '../utils/debugMessageLogger.js'; // Debug logging disabled
 import readline from 'readline';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -482,7 +482,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
   }
 
   async sendMessage(chatId, text, options = {}) {
-    logOutgoing(chatId, text, options); // TEMP: Log outgoing message structure for debugging
+    // logOutgoing(chatId, text, options); // TEMP: Log outgoing message structure for debugging
     const message = { text };
 
     if (options.quoted) {

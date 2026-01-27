@@ -18,6 +18,6 @@ export function logIncoming(msg) {
 }
 
 export function logOutgoing(chatId, text, options) {
-  console.log('--- WhatsApp OUTGOING MESSAGE STRUCTURE ---');
-  console.dir({ chatId, text, options }, { depth: 10, colors: true });
+  // console.log('--- WhatsApp OUTGOING MESSAGE STRUCTURE ---');
+  // console.dir({ chatId, text, options }, { depth: 10, colors: true });
 }
