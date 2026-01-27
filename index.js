@@ -114,6 +114,14 @@ function startBot(entryPoint = 'src/index.js') {
         console.error(`❌ Entry point ${entryPoint} not found!`);
         return;
     }
+
+    if (botProcess) {
+        console.log('🛑 Ending existing bot process...');
+        botProcess.removeAllListeners('exit');
+        botProcess.kill('SIGTERM');
+        botProcess = null;
+    }
+
     console.log(`🚀 Starting bot: ${entryPoint}`);
     botProcess = spawn('node', [entryPoint], { stdio: 'inherit' });
 
