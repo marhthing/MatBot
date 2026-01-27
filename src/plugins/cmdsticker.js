@@ -32,6 +32,12 @@ function saveStickerCommands(stickerCommands) {
 
 const StickerCommandPlugin = {
   name: 'stickercommand',
+
+  onLoad: async (bot) => {
+    bot.getCommandRegistry().registerMessageHandler(async (ctx) => {
+      await StickerCommandPlugin.handleMessage(ctx);
+    });
+  },
   description: 'Bind commands to stickers',
   category: 'utility',
 
@@ -53,7 +59,7 @@ const StickerCommandPlugin = {
           const commandName = args[0].toLowerCase().replace('.', '');
 
           // Verify the command exists
-          const commandExists = ctx.commandRegistry?.hasCommand(commandName);
+          const commandExists = ctx.commandRegistry?.get(commandName);
           if (!commandExists) {
             await ctx.reply(`❌ Command "${commandName}" not found.`);
             return;
