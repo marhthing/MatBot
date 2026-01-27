@@ -30,24 +30,22 @@ function saveStickerCommands(stickerCommands) {
   fs.writeFileSync(STORAGE_FILE, JSON.stringify(json, null, 2), 'utf-8');
 }
 
-const StickerCommandPlugin = {
+const version = '2.0.0';
+const author = 'YourName'; // Update as needed
+
+export default {
   name: 'stickercommand',
-
-  onLoad: async (bot) => {
-    bot.getCommandRegistry().registerMessageHandler(async (ctx) => {
-      await StickerCommandPlugin.handleMessage(ctx);
-    });
-  },
-  description: 'Bind commands to stickers',
+  description: 'Bind commands to stickers for quick execution',
+  version,
+  author,
   category: 'utility',
-
   commands: [
     {
       name: 'setcmd',
       description: 'Bind a command to a sticker',
       usage: '.setcmd <command> (reply to a sticker)',
       ownerOnly: true,
-      execute: async (ctx) => {
+      async execute(ctx) {
         try {
           const args = ctx.args;
           
@@ -56,10 +54,26 @@ const StickerCommandPlugin = {
             return;
           }
 
-          const commandName = args[0].toLowerCase().replace('.', '');
+          const commandName = args[0].toLowerCase().replace(/^\./, '');
 
-          // Verify the command exists
-          const commandExists = ctx.commandRegistry?.get(commandName);
+          // DEBUG: Print all available commands and aliases
+          if (ctx.commandRegistry?.commands) {
+            const debugList = ctx.commandRegistry.commands.map(cmd => {
+              return `${cmd.name}${cmd.aliases && cmd.aliases.length ? ' (aliases: ' + cmd.aliases.join(', ') + ')' : ''}`;
+            }).join('\n');
+            await ctx.reply('DEBUG: Available commands:\n' + debugList);
+          }
+
+          // Find the command by name or alias (case-insensitive, no dot)
+          let commandExists = ctx.commandRegistry?.get(commandName);
+          if (!commandExists) {
+            // Try to find by alias
+            const allCommands = ctx.commandRegistry?.commands || [];
+            commandExists = allCommands.find(cmd =>
+              cmd.name?.toLowerCase() === commandName ||
+              (Array.isArray(cmd.aliases) && cmd.aliases.map(a => a.toLowerCase()).includes(commandName))
+            );
+          }
           if (!commandExists) {
             await ctx.reply(`❌ Command "${commandName}" not found.`);
             return;
@@ -76,6 +90,9 @@ const StickerCommandPlugin = {
           // Get sticker identifiers
           const stickerData = quotedMessage.stickerMessage;
           const identifiers = getStickerIdentifiers(stickerData);
+
+          // DEBUG: Show identifiers at bind time
+          await ctx.reply('DEBUG: Sticker identifiers (bind):\n' + identifiers.join('\n'));
 
           if (identifiers.length === 0) {
             await ctx.reply('❌ Could not identify sticker.');
@@ -112,13 +129,12 @@ const StickerCommandPlugin = {
         }
       }
     },
-
     {
       name: 'delcmd',
       description: 'Remove command binding from a sticker',
       usage: '.delcmd (reply to a sticker)',
       ownerOnly: true,
-      execute: async (ctx) => {
+      async execute(ctx) {
         try {
           // Check if replying to a sticker
           const quotedMessage = ctx.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -173,13 +189,12 @@ const StickerCommandPlugin = {
         }
       }
     },
-
     {
       name: 'listcmd',
       description: 'List all sticker command bindings',
       usage: '.listcmd',
       ownerOnly: true,
-      execute: async (ctx) => {
+      async execute(ctx) {
         try {
           const stickerCommands = loadStickerCommands();
           
@@ -222,58 +237,43 @@ const StickerCommandPlugin = {
       }
     }
   ],
-
-  // Message handler to intercept stickers and execute bound commands
-  async handleMessage(ctx) {
+  /**
+   * onMessage handler: intercept stickers and execute bound commands
+   */
+  async onMessage(ctx) {
+    // Only handle sticker messages
+    if (!ctx || !ctx.raw) return false;
+    let stickerMessage = ctx.raw?.message?.stickerMessage;
+    if (!stickerMessage && ctx.raw?.message?.documentMessage?.mimetype?.includes('image/webp')) {
+      stickerMessage = ctx.raw.message.documentMessage;
+    }
+    if (!stickerMessage) return false;
     try {
-      // Check if this is a sticker message
-      const stickerMessage = ctx.raw?.message?.stickerMessage;
-      
-      if (!stickerMessage) {
-        return; // Not a sticker, continue normal processing
-      }
-
-      // Get sticker identifiers
       const identifiers = getStickerIdentifiers(stickerMessage);
-      
-      if (identifiers.length === 0) {
-        return;
-      }
-
-      // Check if any identifier has a command binding
+      if (identifiers.length === 0) return false;
       const stickerCommands = loadStickerCommands();
-      
       let boundCommand = null;
-      
       for (const identifier of identifiers) {
         if (stickerCommands[identifier]) {
           boundCommand = stickerCommands[identifier].command;
           break;
         }
       }
-
-      if (boundCommand) {
-        // Execute the bound command
-        console.log(`🎯 Sticker triggered command: ${boundCommand}`);
-        
-        // Create a modified context with the command
+      if (boundCommand && ctx.commandRegistry?.execute) {
         const modifiedCtx = {
           ...ctx,
           command: boundCommand,
-          args: [], // Stickers don't have args
+          args: [],
           text: `.${boundCommand}`,
           isStickerCommand: true
         };
-
-        // Use the main execute method for full permission/cooldown logic
-        if (ctx.commandRegistry?.execute) {
-          await ctx.commandRegistry.execute(modifiedCtx);
-        }
+        await ctx.commandRegistry.execute(modifiedCtx);
+        return true;
       }
-
     } catch (error) {
       console.error(`Error handling sticker command: ${error.message}`);
     }
+    return false;
   }
 };
 
@@ -324,5 +324,3 @@ function getStickerIdentifiers(stickerData) {
 
   return identifiers;
 }
-
-export default StickerCommandPlugin;
