@@ -198,11 +198,11 @@ export default {
     const ownerJid = bot.config.ownerNumber ? `${bot.config.ownerNumber}@s.whatsapp.net` : null;
     
     if (!ownerJid) {
-      console.log('[antidelete] No owner number configured, antidelete disabled');
+      // console.log('[antidelete] No owner number configured, antidelete disabled');
       return;
     }
     
-    console.log('[antidelete] Plugin loaded, monitoring for deleted messages');
+    // console.log('[antidelete] Plugin loaded, monitoring for deleted messages');
     
     // 🔥 NEW: Queue processor function
     const processQueue = async () => {
@@ -236,7 +236,7 @@ export default {
       // Check if already processed
       const lastProcessed = processedDeletes.get(dedupeKey);
       if (lastProcessed && (now - lastProcessed) < 300000) {
-        console.log(`[antidelete] Skipping already processed: ${deletedMessageId}`);
+        // console.log(`[antidelete] Skipping already processed: ${deletedMessageId}`);
         return;
       }
       
@@ -249,17 +249,17 @@ export default {
         // Use CORRECT message ID to fetch from memory
         const originalMessage = memoryStore.getMessage('whatsapp', chatId, deletedMessageId);
         
-        console.log(`[antidelete] Recovery attempt for ${deletedMessageId}${originalMessage ? ' - FOUND' : ' - NOT FOUND'}`);
+        // console.log(`[antidelete] Recovery attempt for ${deletedMessageId}${originalMessage ? ' - FOUND' : ' - NOT FOUND'}`);
         
         if (!originalMessage) {
           // Only log, do not send a message to owner if not found
-          console.log(`[antidelete] Message not found in store for: ${deletedMessageId}`);
+          // console.log(`[antidelete] Message not found in store for: ${deletedMessageId}`);
           processedDeletes.set(dedupeKey, now);
           return;
         }
         
         if (originalMessage.key?.fromMe) {
-          console.log('[antidelete] Skipping own deleted message');
+          // console.log('[antidelete] Skipping own deleted message');
           processedDeletes.set(dedupeKey, now);
           return;
         }
@@ -295,7 +295,7 @@ export default {
         
         if (!msg) {
           // Only log, do not send a message to owner if not found
-          console.log(`[antidelete] Message content unavailable for: ${deletedMessageId}`);
+          // console.log(`[antidelete] Message content unavailable for: ${deletedMessageId}`);
           processedDeletes.set(dedupeKey, now);
           return;
         }
@@ -322,7 +322,7 @@ export default {
           actualMsgKeys.length === 0 ||
           actualMsgKeys.every(k => contextOnlyKeys.includes(k))
         ) {
-          console.log(`[antidelete] Message has no content (context-only) for: ${deletedMessageId}`);
+          // console.log(`[antidelete] Message has no content (context-only) for: ${deletedMessageId}`);
           processedDeletes.set(dedupeKey, now);
           return;
         }
@@ -430,7 +430,7 @@ export default {
           }
         }
         
-        console.log(`[antidelete] ✅ Recovered deleted message from ${displayName}`);
+        // console.log(`[antidelete] ✅ Recovered deleted message from ${displayName}`);
         
         processedDeletes.set(dedupeKey, now);
         
@@ -574,7 +574,7 @@ export default {
           const lastProcessed = processedDeletes.get(dedupeKey);
           if (lastProcessed && (Date.now() - lastProcessed) < 300000) continue;
           processingDeletes.add(dedupeKey);
-          console.log(`[antidelete] Deletion detected. Queuing: ${deletedMessageId}`);
+          // console.log(`[antidelete] Deletion detected. Queuing: ${deletedMessageId}`);
           deletionQueue.push({ deletedKey, chatId, deletedMessageId });
           processQueue().catch(err => {
             console.error('[antidelete] Queue processor error:', err);

@@ -60,7 +60,7 @@ class PendingActions {
     }
     
     const chatId = ctx.chatId;
-    console.log('[pendingActions] handle() debug', { replyTo, chatId, hasPending: !!this.actions[chatId]?.[replyTo], messageText });
+    // console.log('[pendingActions] handle() debug', { replyTo, chatId, hasPending: !!this.actions[chatId]?.[replyTo], messageText });
     
     // 1. Try quoted/reply-based matching first
     if (replyTo && this.actions[chatId]?.[replyTo]) {
