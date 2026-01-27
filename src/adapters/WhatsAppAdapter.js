@@ -292,16 +292,19 @@ export default class WhatsAppAdapter extends BaseAdapter {
     // Handle edited messages
     this.client.ev.on('messages.update', async (updates) => {
       for (const update of updates) {
-        // Check for edited message (editedMessage field)
-        const editedMessage = update.update?.editedMessage;
-        if (editedMessage && update.key) {
+        // Check for edited message
+        // Structure: update.update.message.editedMessage.message contains the new content
+        const editedMessageWrapper = update.update?.message?.editedMessage;
+        const editedMessageContent = editedMessageWrapper?.message;
+        
+        if (editedMessageContent && update.key) {
           try {
-            this.logger.debug({ key: update.key }, 'Processing edited message');
+            this.logger.info({ key: update.key }, 'Processing edited message');
             // Build a message object from the edited content
             const editedMsg = {
               key: update.key,
-              message: editedMessage,
-              messageTimestamp: Date.now() / 1000
+              message: editedMessageContent,
+              messageTimestamp: update.update?.messageTimestamp || Date.now() / 1000
             };
             memoryStore.saveMessage('whatsapp', update.key.remoteJid, update.key.id, editedMsg);
             const messageContext = await this.parseMessage(editedMsg);
