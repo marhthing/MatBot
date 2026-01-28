@@ -24,7 +24,7 @@ function ensureDependencies() {
     // Use console.log here, logger may not be available yet
     console.log('Installing missing packages...');
     try {
-      execSync('npm install', { stdio: 'inherit', shell: 'powershell.exe' });
+      execSync('npm install', { stdio: 'inherit' }); // Remove shell: 'powershell.exe' for cross-platform
       console.log('All packages installed.');
     } catch (e) {
       console.error('Failed to install packages', e);
