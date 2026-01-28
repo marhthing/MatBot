@@ -84,6 +84,8 @@ export default {
         // Check if local git is up to date with remote, then reclone if not
         try {
           const { execSync } = await import('child_process');
+          const fs = await import('fs');
+          const path = await import('path');
           execSync('git fetch');
           const local = execSync('git rev-parse HEAD').toString().trim();
           let remote;
@@ -98,13 +100,22 @@ export default {
             return;
           } else {
             await ctx.reply('🗑️ Update available! updating....');
-            const fs = await import('fs');
-            const path = await import('path');
+            const repoUrl = 'https://github.com/marhthing/MatBot.git';
+            const tempDir = path.join(cwd, 'temp_update');
+            // Clone latest code to temp_update
+            if (fs.existsSync(tempDir)) {
+              if (process.platform === 'win32') {
+                execSync(`powershell -Command \"Remove-Item '${tempDir}' -Recurse -Force\"`);
+              } else {
+                execSync(`rm -rf '${tempDir}'`);
+              }
+            }
+            execSync(`git clone --depth 1 ${repoUrl} ${tempDir}`);
+            // Delete everything except keep list
             const keep = ['.env', 'session', 'index.js', 'storage'];
-            const cwd = process.cwd();
             const all = fs.readdirSync(cwd);
             for (const item of all) {
-              if (keep.includes(item)) continue;
+              if (keep.includes(item) || item === 'temp_update') continue;
               try {
                 const full = path.join(cwd, item);
                 if (fs.lstatSync(full).isDirectory()) {
@@ -120,9 +131,29 @@ export default {
                 await ctx.reply(`⚠️ Error deleting ${item}: ${e.message}`);
               }
             }
+            // Copy new files from temp_update to cwd, except keep list
+            const copyRecursiveSync = (src, dest) => {
+              const entries = fs.readdirSync(src, { withFileTypes: true });
+              for (const entry of entries) {
+                if (keep.includes(entry.name)) continue;
+                const srcPath = path.join(src, entry.name);
+                const destPath = path.join(dest, entry.name);
+                if (entry.isDirectory()) {
+                  if (!fs.existsSync(destPath)) fs.mkdirSync(destPath);
+                  copyRecursiveSync(srcPath, destPath);
+                } else {
+                  fs.copyFileSync(srcPath, destPath);
+                }
+              }
+            };
+            copyRecursiveSync(tempDir, cwd);
+            // Remove temp_update
+            if (process.platform === 'win32') {
+              execSync(`powershell -Command \"Remove-Item '${tempDir}' -Recurse -Force\"`);
+            } else {
+              execSync(`rm -rf '${tempDir}'`);
+            }
             try {
-              // Instead of calling index.js again (which is already running as a manager),
-              // we just exit and let the manager handle the restart or re-cloning.
               console.log('Update complete, exiting to allow manager to handle fresh start.');
               process.exit(0);
             } catch (e) {
@@ -149,12 +180,20 @@ export default {
         const fs = await import('fs');
         const { execSync } = await import('child_process');
         const path = await import('path');
-        // Delete everything except .env, session folder, and root index.js
+        const repoUrl = 'https://github.com/marhthing/MatBot.git';
+        const tempDir = path.join(cwd, 'temp_update');
+        if (fs.existsSync(tempDir)) {
+          if (process.platform === 'win32') {
+            execSync(`powershell -Command \"Remove-Item '${tempDir}' -Recurse -Force\"`);
+          } else {
+            execSync(`rm -rf '${tempDir}'`);
+          }
+        }
+        execSync(`git clone --depth 1 ${repoUrl} ${tempDir}`);
         const keep = ['.env', 'session', 'index.js', 'storage'];
-        const cwd = process.cwd();
         const all = fs.readdirSync(cwd);
         for (const item of all) {
-          if (keep.includes(item)) continue;
+          if (keep.includes(item) || item === 'temp_update') continue;
           try {
             const full = path.join(cwd, item);
             if (fs.lstatSync(full).isDirectory()) {
@@ -167,6 +206,26 @@ export default {
               fs.unlinkSync(full);
             }
           } catch (e) {}
+        }
+        const copyRecursiveSync = (src, dest) => {
+          const entries = fs.readdirSync(src, { withFileTypes: true });
+          for (const entry of entries) {
+            if (keep.includes(entry.name)) continue;
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+            if (entry.isDirectory()) {
+              if (!fs.existsSync(destPath)) fs.mkdirSync(destPath);
+              copyRecursiveSync(srcPath, destPath);
+            } else {
+              fs.copyFileSync(srcPath, destPath);
+            }
+          }
+        };
+        copyRecursiveSync(tempDir, cwd);
+        if (process.platform === 'win32') {
+          execSync(`powershell -Command \"Remove-Item '${tempDir}' -Recurse -Force\"`);
+        } else {
+          execSync(`rm -rf '${tempDir}'`);
         }
         // Start the root index.js in the foreground (interactive)
         execSync('node index.js', { stdio: 'inherit' });
