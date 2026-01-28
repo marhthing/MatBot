@@ -183,11 +183,77 @@ export default class Bot extends EventEmitter {
           const stickerCommands = storageUtil.getStickerCommands();
           const boundCmd = stickerCommands[stickerId];
           
-          if (boundCmd) {
-            this.logger.info(`Sticker command detected: ${boundCmd}`);
-            messageContext.command = boundCmd.split(/\s+/)[0];
-            messageContext.args = boundCmd.split(/\s+/).slice(1);
-          }
+            if (boundCmd) {
+              this.logger.info(`Sticker command detected: ${boundCmd}`);
+              messageContext.command = boundCmd.split(/\s+/)[0];
+              messageContext.args = boundCmd.split(/\s+/).slice(1);
+              
+              // If the sticker itself is a reply, we want the command to act on the QUOTED message.
+              // We need to move the current sticker's quoted context into the messageContext.quoted
+              const contextInfo = messageContext.raw.message?.stickerMessage?.contextInfo;
+              if (contextInfo?.quotedMessage) {
+                // The sticker is replying to someone/something.
+                // Reconstruct the quoted context so the command (like .save) sees the QUOTED message as the target.
+                let quotedSenderId = contextInfo.participant || contextInfo.remoteJid;
+                if (quotedSenderId?.endsWith('@lid')) {
+                  try {
+                    const pn = await this.adapters.get('whatsapp').client.signalRepository.lidMapping.getPNForLID(quotedSenderId);
+                    if (pn) quotedSenderId = pn;
+                  } catch (e) {}
+                }
+                if (quotedSenderId) quotedSenderId = quotedSenderId.replace(/:.*$/, '');
+                
+                let quotedType = 'text';
+                let quotedText = '';
+                const quotedMsg = contextInfo.quotedMessage;
+                
+                if (quotedMsg.imageMessage) {
+                  quotedType = 'image';
+                  quotedText = quotedMsg.imageMessage.caption || '';
+                } else if (quotedMsg.videoMessage) {
+                  quotedType = 'video';
+                  quotedText = quotedMsg.videoMessage.caption || '';
+                } else if (quotedMsg.audioMessage) {
+                  quotedType = 'audio';
+                } else if (quotedMsg.stickerMessage) {
+                  quotedType = 'sticker';
+                } else if (quotedMsg.documentMessage) {
+                  quotedType = 'document';
+                } else if (quotedMsg.conversation) {
+                  quotedText = quotedMsg.conversation;
+                } else if (quotedMsg.extendedTextMessage) {
+                  quotedText = quotedMsg.extendedTextMessage.text || '';
+                }
+                
+                messageContext.quoted = {
+                  messageId: contextInfo.stanzaId,
+                  senderId: quotedSenderId,
+                  type: quotedType,
+                  text: quotedText,
+                  message: quotedMsg,
+                  raw: {
+                    key: {
+                      remoteJid: messageContext.chatId,
+                      id: contextInfo.stanzaId,
+                      participant: contextInfo.participant
+                    },
+                    message: quotedMsg
+                  }
+                };
+                
+                // IMPORTANT: We must also update the raw message's context for plugins that check raw directly
+                // We simulate an extendedTextMessage with contextInfo pointing to the quoted message
+                messageContext.raw.message = {
+                  extendedTextMessage: {
+                    text: `.${boundCmd}`,
+                    contextInfo: contextInfo
+                  }
+                };
+              } else {
+                // If not a reply, the command targets the sticker itself.
+                messageContext.quoted = null;
+              }
+            }
         }
       } catch (err) {
         this.logger.error({ err }, '[handleMessage] Error checking sticker command');
