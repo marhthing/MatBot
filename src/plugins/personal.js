@@ -53,13 +53,13 @@ export default {
       }
     },
     {
-      name: 'clr',
+      name: 'clear',
       aliases: ['clearchat'],
       description: 'Clear chat conversation (local)',
-      usage: '.clr',
+      usage: '.clear',
       execute: async (ctx) => {
         try {
-          // Allow .clr in any chat (group, owner, or private)
+          // Allow .clear in any chat (group, owner, or private)
           if (ctx.platform !== 'whatsapp') {
             return await ctx.reply('❌ This command is only available on WhatsApp.');
           }
@@ -71,7 +71,7 @@ export default {
           }
           await ctx._adapter.clearChat(ctx.chatId);
         } catch (error) {
-          console.error(`Error in .clr command: ${error.message}`);
+          console.error(`Error in .clear command: ${error.message}`);
           await ctx.reply('❌ Failed to clear chat.');
         }
       }

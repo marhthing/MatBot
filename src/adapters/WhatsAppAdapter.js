@@ -445,7 +445,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       // Baileys requires the key and timestamp of the last message to clear/delete a chat properly
       const lastMsg = memoryStore.getLatestMessage('whatsapp', chatId);
       
-      this.logger.info({ chatId, hasLastMsg: !!lastMsg }, 'Attempting to clear chat');
+      // this.logger.info({ chatId, hasLastMsg: !!lastMsg }, 'Attempting to clear chat');
 
       // 1. First attempt: Delete for me (clears history but keeps chat in list)
       try {
