@@ -1,19 +1,8 @@
-import Bot from './core/Bot.js';
-import config from './config/default.js';
-import logger from './utils/logger.js';
-import watchFilesAndFolders from './utils/watcher.js';
-import dotenv from 'dotenv';
-import path from 'path';
-import envMemory from './utils/envMemory.js';
-import { execSync } from 'child_process';
+// Dependency check and install must run before any other imports!
 import fs from 'fs';
-dotenv.config();
+import path from 'path';
+import { execSync } from 'child_process';
 
-/**
- * Main entry point for MATDEV Universal Bot
- */
-
-// Check if node_modules exists and all dependencies are installed
 function ensureDependencies() {
   const nodeModulesPath = path.join(process.cwd(), 'node_modules');
   const pkgPath = path.join(process.cwd(), 'package.json');
@@ -21,7 +10,6 @@ function ensureDependencies() {
   if (!fs.existsSync(nodeModulesPath)) {
     needInstall = true;
   } else {
-    // Check if all dependencies in package.json are present in node_modules
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       for (const dep of Object.keys(pkg.dependencies || {})) {
@@ -33,19 +21,31 @@ function ensureDependencies() {
     } catch {}
   }
   if (needInstall) {
-    logger.info('Installing missing packages...');
+    // Use console.log here, logger may not be available yet
+    console.log('Installing missing packages...');
     try {
       execSync('npm install', { stdio: 'inherit', shell: 'powershell.exe' });
-      logger.info('All packages installed.');
+      console.log('All packages installed.');
     } catch (e) {
-      logger.error({ error: e }, 'Failed to install packages');
+      console.error('Failed to install packages', e);
       process.exit(1);
     }
   }
 }
 
-// Ensure dependencies before starting bot
 ensureDependencies();
+
+import Bot from './core/Bot.js';
+import config from './config/default.js';
+import logger from './utils/logger.js';
+import watchFilesAndFolders from './utils/watcher.js';
+import dotenv from 'dotenv';
+import envMemory from './utils/envMemory.js';
+dotenv.config();
+
+/**
+ * Main entry point for MATDEV Universal Bot
+ */
 
 const bot = new Bot(config);
 
