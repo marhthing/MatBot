@@ -24,8 +24,9 @@ function ensureDependencies() {
     // Use console.log here, logger may not be available yet
     console.log('Installing missing packages...');
     try {
-      execSync('npm install', { stdio: 'inherit' }); // Remove shell: 'powershell.exe' for cross-platform
-      console.log('All packages installed.');
+      execSync('npm install', { stdio: 'inherit' });
+      console.log('All packages installed. Please restart the bot.');
+      process.exit(0); // Exit cleanly so the manager restarts and loads with packages
     } catch (e) {
       console.error('Failed to install packages', e);
       process.exit(1);
