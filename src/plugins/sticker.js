@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import envMemory from '../utils/envMemory.js';
+import { shouldReact } from '../utils/pendingActions.js';
 
 export default {
   name: 'sticker',
@@ -82,7 +83,7 @@ export default {
             throw new Error('Empty buffer');
           }
         } catch (e) {
-          console.error('Download media error:', e);
+          // console.error('Download media error:', e);
           return await ctx.reply('❌ Failed to download media. The media might have been deleted from WhatsApp servers.');
         }
 
@@ -106,7 +107,7 @@ export default {
         const stickerAuthor = envMemory.get('STICKER_AUTHOR') || config.stickerAuthor || 'Bot';
 
         // Send processing indicator
-        await ctx.react('⏳');
+        if (shouldReact()) await ctx.react('⏳');
 
         // Create sticker with optimized settings
         try {
@@ -121,12 +122,12 @@ export default {
           const stickerBuffer = await sticker.toBuffer();
           
           // Remove processing indicator
-          await ctx.react('');
+          if (shouldReact()) await ctx.react('✅');
           
           await ctx._adapter.sendMedia(ctx.chatId, stickerBuffer, { type: 'sticker' });
         } catch (e) {
-          await ctx.react('❌');
-          console.error('Create sticker error:', e);
+          if (shouldReact()) await ctx.react('❌');
+          // console.error('Create sticker error:', e);
           await ctx.reply('❌ Failed to create sticker. Make sure the media is a valid image or video.');
         }
       }

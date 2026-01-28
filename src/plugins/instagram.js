@@ -216,10 +216,19 @@ export default {
                         const mediaBuffer = await downloadMediaToBuffer(mediaUrl);
                         
                         if (isVideo) {
-                          await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
-                            type: 'video',
-                            mimetype: 'video/mp4'
-                          });
+                          const size = mediaBuffer.length;
+                          if (size > VIDEO_MEDIA_LIMIT) {
+                            await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
+                              type: 'document',
+                              mimetype: 'video/mp4',
+                              caption: 'Instagram video'
+                            });
+                          } else {
+                            await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
+                              type: 'video',
+                              mimetype: 'video/mp4'
+                            });
+                          }
                         } else {
                           await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
                             type: 'image',
@@ -234,10 +243,19 @@ export default {
                       const mediaBuffer = await downloadMediaToBuffer(selected.url);
                       
                       if (selected.isVideo) {
-                        await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
-                          type: 'video',
-                          mimetype: 'video/mp4'
-                        });
+                        const size = mediaBuffer.length;
+                        if (size > VIDEO_MEDIA_LIMIT) {
+                          await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
+                            type: 'document',
+                            mimetype: 'video/mp4',
+                            caption: 'Instagram video'
+                          });
+                        } else {
+                          await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
+                            type: 'video',
+                            mimetype: 'video/mp4'
+                          });
+                        }
                       } else {
                         await replyCtx._adapter.sendMedia(replyCtx.chatId, mediaBuffer, {
                           type: 'image',
@@ -247,18 +265,18 @@ export default {
                       await replyCtx.react('✅');
                     }
                   } catch (error) {
-                    console.error('Instagram download error:', error);
+                    // console.error('Instagram download error:', error);
                     await replyCtx.react('❌');
                     await replyCtx.reply('Failed to download selected media.');
                   }
                 },
                 timeout: 10 * 60 * 1000
               });
-              await ctx.react('');
+              if (shouldReact()) await ctx.react('');
             }
 
           } catch (error) {
-            console.error('Instagram download failed:', error);
+            // console.error('Instagram download failed:', error);
             if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
@@ -274,7 +292,7 @@ export default {
           }
 
         } catch (error) {
-          console.error('Instagram command error:', error);
+          // console.error('Instagram command error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the Instagram media');
         }

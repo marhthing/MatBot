@@ -4,6 +4,9 @@ import fs from 'fs-extra';
 import path from 'path';
 import pendingActions, { shouldReact } from '../utils/pendingActions.js';
 
+const VIDEO_SIZE_LIMIT = 100 * 1024 * 1024;
+const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
+
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -230,13 +233,28 @@ export default {
                 if (shouldReact()) await replyCtx.react('⏳');
                 try {
                   const videoBuffer = await downloadMediaToBuffer(videoUrl);
-                  await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
-                    type: 'video',
-                    mimetype: 'video/mp4'
-                  });
+                  const size = videoBuffer.length;
+                  
+                  if (size > VIDEO_SIZE_LIMIT) {
+                    if (shouldReact()) await replyCtx.react('❌');
+                    return await replyCtx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
+                  }
+                  
+                  if (size > VIDEO_MEDIA_LIMIT) {
+                    await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                      type: 'document',
+                      mimetype: 'video/mp4',
+                      caption: 'TikTok video'
+                    });
+                  } else {
+                    await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                      type: 'video',
+                      mimetype: 'video/mp4'
+                    });
+                  }
                   if (shouldReact()) await replyCtx.react('✅');
                 } catch (error) {
-                  console.error('TikTok download error:', error);
+                  // console.error('TikTok download error:', error);
                   if (shouldReact()) await replyCtx.react('❌');
                   await replyCtx.reply('Failed to download selected quality.');
                 }
@@ -248,14 +266,29 @@ export default {
           }
 
           const videoBuffer = await downloadMediaToBuffer(qualities[0].url);
-          await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
-            type: 'video',
-            mimetype: 'video/mp4'
-          });
+          const size = videoBuffer.length;
+          
+          if (size > VIDEO_SIZE_LIMIT) {
+            if (shouldReact()) await ctx.react('❌');
+            return await ctx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
+          }
+          
+          if (size > VIDEO_MEDIA_LIMIT) {
+            await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+              type: 'document',
+              mimetype: 'video/mp4',
+              caption: 'TikTok video'
+            });
+          } else {
+            await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+              type: 'video',
+              mimetype: 'video/mp4'
+            });
+          }
           if (shouldReact()) await ctx.react('✅');
 
         } catch (error) {
-          console.error('TikTok download error:', error);
+          // console.error('TikTok download error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the TikTok video. Please try again.');
         }

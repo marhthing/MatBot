@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import fs from 'fs-extra';
 import path from 'path';
+import { shouldReact } from '../utils/pendingActions.js';
 
 export default {
   name: 'qrcode',
@@ -27,7 +28,7 @@ export default {
           
           const text = ctx.args.join(' ');
 
-          await ctx.react('⏳');
+          if (shouldReact()) await ctx.react('⏳');
 
           // Generate QR code as buffer in memory (no file save)
           const qrBuffer = await QRCode.toBuffer(text, {
@@ -42,11 +43,11 @@ export default {
             caption: `QR Code for: ${text.length > 100 ? text.substring(0, 100) + '...' : text}`
           });
 
-          await ctx.react('✅');
+          if (shouldReact()) await ctx.react('✅');
           
         } catch (error) {
-          console.error('QR Error:', error);
-          await ctx.react('❌');
+          // console.error('QR Error:', error);
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('Failed to generate QR code. Please try again.');
         }
       }

@@ -67,7 +67,7 @@ async function validateSnapchatUrl(url) {
       };
     }
   } catch (error) {
-    console.error('URL validation error:', error.message);
+    // console.error('URL validation error:', error.message);
   }
   
   return null;
@@ -283,7 +283,7 @@ export default {
                     if (shouldReact()) await replyCtx.react('✅');
                     await fs.unlink(result.path).catch(() => {});
                   } catch (error) {
-                    console.error('Snapchat download error:', error);
+                    // console.error('Snapchat download error:', error);
                     if (shouldReact()) await replyCtx.react('❌');
                     await replyCtx.reply('Failed to download selected quality.');
                   }
@@ -321,7 +321,7 @@ export default {
             }
 
           } catch (error) {
-            console.error('Snapchat download failed:', error);
+            // console.error('Snapchat download failed:', error);
             if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
@@ -337,7 +337,7 @@ export default {
           }
 
         } catch (error) {
-          console.error('Snapchat command error:', error);
+          // console.error('Snapchat command error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing Snapchat media');
         }

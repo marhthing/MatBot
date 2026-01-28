@@ -5,6 +5,9 @@ import pendingActions, { shouldReact } from '../utils/pendingActions.js';
 
 const { facebook } = fbDownloader;
 
+const VIDEO_SIZE_LIMIT = 100 * 1024 * 1024;
+const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
+
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -101,7 +104,7 @@ async function fetchWithMrnima(url) {
       source: '@mrnima/facebook-downloader'
     };
   } catch (error) {
-    console.log('[FB] @mrnima/facebook-downloader failed:', error.message);
+    // console.log('[FB] @mrnima/facebook-downloader failed:', error.message);
     return null;
   }
 }
@@ -166,7 +169,7 @@ async function fetchFromFDownloader(url, timeout = 60000) {
 
     return { title, thumbnail, duration, links, source: 'fdownloader.net' };
   } catch (error) {
-    console.log('[FB] fdownloader.net failed:', error.message);
+    // console.log('[FB] fdownloader.net failed:', error.message);
     return null;
   }
 }
@@ -203,7 +206,7 @@ async function fetchFromGetFvid(url, timeout = 60000) {
 
     return { title: 'Facebook Video', links, source: 'getfvid.com' };
   } catch (error) {
-    console.log('[FB] getfvid.com failed:', error.message);
+    // console.log('[FB] getfvid.com failed:', error.message);
     return null;
   }
 }
@@ -254,16 +257,16 @@ export default {
 
           for (const method of methods) {
             try {
-              console.log(`[FB] Trying ${method.name}...`);
+              // console.log(`[FB] Trying ${method.name}...`);
               const result = await method.fn();
               
               if (result && result.links && result.links.length > 0) {
-                console.log(`[FB] ${method.name} succeeded with ${result.links.length} links`);
+                // console.log(`[FB] ${method.name} succeeded with ${result.links.length} links`);
                 videoData = result;
                 break;
               }
             } catch (error) {
-              console.log(`[FB] ${method.name} failed:`, error.message);
+              // console.log(`[FB] ${method.name} failed:`, error.message);
             }
           }
 
@@ -290,11 +293,23 @@ export default {
             const quality = qualities[0];
             try {
               const videoBuffer = await downloadMediaToBuffer(quality.url);
+              const size = videoBuffer.length;
+              
+              if (size > VIDEO_SIZE_LIMIT) {
+                if (shouldReact()) await ctx.react('❌');
+                return await ctx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
+              }
               
               if (quality.format === 'mp3') {
                 await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
                   type: 'audio',
                   mimetype: 'audio/mpeg'
+                });
+              } else if (size > VIDEO_MEDIA_LIMIT) {
+                await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                  type: 'document',
+                  mimetype: 'video/mp4',
+                  caption: 'Facebook video'
                 });
               } else {
                 await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
@@ -305,7 +320,7 @@ export default {
               
               if (shouldReact()) await ctx.react('✅');
             } catch (error) {
-              console.error('[FB] Download failed:', error);
+              // console.error('[FB] Download failed:', error);
               if (shouldReact()) await ctx.react('❌');
               await ctx.reply('Failed to download video. Please try again.');
             }
@@ -337,11 +352,23 @@ export default {
               
               try {
                 const videoBuffer = await downloadMediaToBuffer(selected.url);
+                const size = videoBuffer.length;
+                
+                if (size > VIDEO_SIZE_LIMIT) {
+                  if (shouldReact()) await replyCtx.react('❌');
+                  return await replyCtx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
+                }
                 
                 if (selected.format === 'mp3') {
                   await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
                     type: 'audio',
                     mimetype: 'audio/mpeg'
+                  });
+                } else if (size > VIDEO_MEDIA_LIMIT) {
+                  await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                    type: 'document',
+                    mimetype: 'video/mp4',
+                    caption: 'Facebook video'
                   });
                 } else {
                   await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
@@ -352,7 +379,7 @@ export default {
                 
                 if (shouldReact()) await replyCtx.react('✅');
               } catch (error) {
-                console.error('[FB] Download error:', error);
+                // console.error('[FB] Download error:', error);
                 if (shouldReact()) await replyCtx.react('❌');
                 await replyCtx.reply('Failed to download selected quality. Please try again.');
               }
@@ -363,7 +390,7 @@ export default {
           if (shouldReact()) await ctx.react('');
 
         } catch (error) {
-          console.error('[FB] Command error:', error);
+          // console.error('[FB] Command error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the Facebook video. Please try again.');
         }

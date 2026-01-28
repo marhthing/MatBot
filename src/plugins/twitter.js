@@ -162,7 +162,7 @@ export default {
               if (sortedVariants.length === 0) {
                 const videoUrl = variants[0]?.url;
                 if (!videoUrl) {
-                  await ctx.react('❌');
+                  if (shouldReact()) await ctx.react('❌');
                   return await ctx.reply('No downloadable video found.');
                 }
                 
@@ -243,7 +243,7 @@ export default {
                       }
                       if (shouldReact()) await replyCtx.react('✅');
                     } catch (error) {
-                      console.error('Twitter download error:', error);
+                      // console.error('Twitter download error:', error);
                       if (shouldReact()) await replyCtx.react('❌');
                       await replyCtx.reply('Failed to download selected quality.');
                     }
@@ -320,7 +320,7 @@ export default {
                         if (shouldReact()) await replyCtx.react('✅');
                       }
                     } catch (error) {
-                      console.error('Twitter download error:', error);
+                      // console.error('Twitter download error:', error);
                       if (shouldReact()) await replyCtx.react('❌');
                       await replyCtx.reply('Failed to download selected media.');
                     }
@@ -335,7 +335,7 @@ export default {
             }
 
           } catch (error) {
-            console.error('Twitter download failed:', error);
+            // console.error('Twitter download failed:', error);
             if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
@@ -351,7 +351,7 @@ export default {
           }
 
         } catch (error) {
-          console.error('Twitter command error:', error);
+          // console.error('Twitter command error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing Twitter media');
         }

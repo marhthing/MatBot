@@ -1,6 +1,7 @@
 import axios from 'axios';
 import fs from 'fs-extra';
 import path from 'path';
+import { shouldReact } from '../utils/pendingActions.js';
 
 const VIDEO_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2GB
 const VIDEO_MEDIA_LIMIT = 16 * 1024 * 1024; // 16MB
@@ -56,7 +57,7 @@ async function validatePinterestUrl(url) {
       };
     }
   } catch (error) {
-    console.error('URL validation error:', error.message);
+    // console.error('URL validation error:', error.message);
   }
   
   return null;
@@ -325,7 +326,7 @@ export default {
           const tempDir = path.join(process.cwd(), 'tmp');
           await fs.ensureDir(tempDir);
 
-          await ctx.react('⏳');
+          if (shouldReact()) await ctx.react('⏳');
 
           try {
             const mediaInfo = await getPinterestMediaInfo(validatedUrl.url);
@@ -338,13 +339,13 @@ export default {
             // Check size limits
             if (mediaInfo.isVideo && result.size > VIDEO_SIZE_LIMIT) {
               await fs.unlink(result.path).catch(() => {});
-              await ctx.react('❌');
+              if (shouldReact()) await ctx.react('❌');
               return await ctx.reply(`❌ Video too large (${formatFileSize(result.size)}). WhatsApp limit is 2GB.`);
             }
             
             if (!mediaInfo.isVideo && result.size > IMAGE_SIZE_LIMIT) {
               await fs.unlink(result.path).catch(() => {});
-              await ctx.react('❌');
+              if (shouldReact()) await ctx.react('❌');
               return await ctx.reply(`❌ Image too large (${formatFileSize(result.size)}). Limit is 5MB.`);
             }
 
@@ -370,12 +371,12 @@ export default {
               });
             }
 
-            await ctx.react('');
+            if (shouldReact()) await ctx.react('✅');
             await fs.unlink(result.path).catch(() => {});
 
           } catch (error) {
-            console.error('Pinterest download failed:', error);
-            await ctx.react('❌');
+            // console.error('Pinterest download failed:', error);
+            if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = '❌ Download failed. ';
             if (error.message?.includes('private')) {
@@ -392,8 +393,8 @@ export default {
           }
 
         } catch (error) {
-          console.error('Pinterest command error:', error);
-          await ctx.react('❌');
+          // console.error('Pinterest command error:', error);
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('❌ An error occurred while processing the Pinterest media');
         }
       }

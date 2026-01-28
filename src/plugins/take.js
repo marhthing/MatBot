@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import envMemory from '../utils/envMemory.js';
+import { shouldReact } from '../utils/pendingActions.js';
 
 export default {
   name: 'take',
@@ -60,7 +61,7 @@ export default {
             throw new Error('Empty buffer');
           }
         } catch (e) {
-          console.error('Download sticker error:', e);
+          // console.error('Download sticker error:', e);
           return await ctx.reply('❌ Failed to download sticker. The sticker might have been deleted from WhatsApp servers.');
         }
 
@@ -85,7 +86,7 @@ export default {
         const stickerAuthor = envMemory.get('STICKER_AUTHOR') || config.stickerAuthor || 'Bot';
 
         // Send processing indicator
-        await ctx.react('⏳');
+        if (shouldReact()) await ctx.react('⏳');
 
         // Re-create sticker with new metadata
         try {
@@ -100,12 +101,12 @@ export default {
           const stickerBuffer = await sticker.toBuffer();
           
           // Remove processing indicator
-          await ctx.react('');
+          if (shouldReact()) await ctx.react('✅');
           
           await ctx._adapter.sendMedia(ctx.chatId, stickerBuffer, { type: 'sticker' });
         } catch (e) {
-          await ctx.react('❌');
-          console.error('Create sticker error:', e);
+          if (shouldReact()) await ctx.react('❌');
+          // console.error('Create sticker error:', e);
           await ctx.reply('❌ Failed to update sticker metadata.');
         }
       }

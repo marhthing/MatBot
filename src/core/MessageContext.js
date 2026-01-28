@@ -66,15 +66,6 @@ export default class MessageContext {
    * React to the message
    */
   async react(emoji) {
-    // Debug log for reaction context
-    console.log('[MessageContext.react] Reacting:', {
-      emoji,
-      chatId: this.chatId,
-      messageId: this.messageId,
-      messageKey: this.messageKey, // Log the key
-      platform: this.platform,
-      senderId: this.senderId
-    });
     // Pass the full message key instead of just the ID
     return await this._adapter.sendReaction(this.chatId, this.messageKey || this.messageId, emoji);
   }

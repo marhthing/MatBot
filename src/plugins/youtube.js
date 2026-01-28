@@ -258,7 +258,7 @@ export default {
           const tempDir = path.join(process.cwd(), 'tmp');
           await fs.ensureDir(tempDir);
 
-          await ctx.react('⏳');
+          if (shouldReact()) await ctx.react('⏳');
 
           try {
             const { formats, title, duration } = await getVideoFormats(validatedUrl.url);
@@ -279,7 +279,7 @@ export default {
                   mimetype: 'video/mp4'
                 });
               }
-              await ctx.react('✅');
+              if (shouldReact()) await ctx.react('✅');
               await fs.unlink(result.path).catch(() => {});
               return;
             }
@@ -328,18 +328,18 @@ export default {
                   await replyCtx.react('✅');
                   await fs.unlink(result.path).catch(() => {});
                 } catch (error) {
-                  console.error('YouTube download error:', error);
+                  // console.error('YouTube download error:', error);
                   await replyCtx.react('❌');
                   await replyCtx.reply('Failed to download selected quality.');
                 }
               },
               timeout: 10 * 60 * 1000
             });
-            await ctx.react('');
+            if (shouldReact()) await ctx.react('');
 
           } catch (error) {
-            console.error('YouTube video download failed:', error);
-            await ctx.react('❌');
+            // console.error('YouTube video download failed:', error);
+            if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
             if (error.message?.includes('private')) {
@@ -356,8 +356,8 @@ export default {
           }
 
         } catch (error) {
-          console.error('YouTube video error:', error);
-          await ctx.react('❌');
+          // console.error('YouTube video error:', error);
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the video');
         }
       }
@@ -395,7 +395,7 @@ export default {
           const tempDir = path.join(process.cwd(), 'tmp');
           await fs.ensureDir(tempDir);
 
-          await ctx.react('⏳');
+          if (shouldReact()) await ctx.react('⏳');
 
           try {
             const result = await downloadAudioWithYtDlp(validatedUrl.url, tempDir);
@@ -407,18 +407,18 @@ export default {
               mimetype: 'audio/mp4'
             });
 
-            await ctx.react('✅');
+            if (shouldReact()) await ctx.react('✅');
             await fs.unlink(result.path).catch(() => {});
 
           } catch (error) {
-            console.error('YouTube audio download failed:', error);
-            await ctx.react('❌');
+            // console.error('YouTube audio download failed:', error);
+            if (shouldReact()) await ctx.react('❌');
             await ctx.reply(`Failed to download audio: ${error.message}`);
           }
 
         } catch (error) {
-          console.error('YouTube audio error:', error);
-          await ctx.react('❌');
+          // console.error('YouTube audio error:', error);
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the audio');
         }
       }
@@ -441,7 +441,7 @@ export default {
             return await ctx.reply('Please provide a search term\n\nUsage: .yts <search term>');
           }
 
-          await ctx.react('🔍');
+          if (shouldReact()) await ctx.react('🔍');
 
           try {
             const results = await youtubedl(`ytsearch5:${query}`, {
@@ -451,7 +451,7 @@ export default {
             });
 
             if (!results || !results.entries || results.entries.length === 0) {
-              await ctx.react('❌');
+              if (shouldReact()) await ctx.react('❌');
               return await ctx.reply('No videos found for your search');
             }
 
@@ -472,17 +472,17 @@ export default {
             resultText += `Use .yta <url> to download audio`;
 
             await ctx.reply(resultText);
-            await ctx.react('');
+            if (shouldReact()) await ctx.react('');
 
           } catch (error) {
-            console.error('YouTube search error:', error);
-            await ctx.react('❌');
+            // console.error('YouTube search error:', error);
+            if (shouldReact()) await ctx.react('❌');
             await ctx.reply('Search failed. Please try again later.');
           }
 
         } catch (error) {
-          console.error('YouTube search error:', error);
-          await ctx.react('❌');
+          // console.error('YouTube search error:', error);
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while searching');
         }
       }
