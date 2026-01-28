@@ -133,11 +133,12 @@ export default {
                 await ctx.reply(`⚠️ Error deleting ${item}: ${e.message}`);
               }
             }
-            // Copy new files from temp_update to cwd, except keep list
+            // Copy new files from temp_update to cwd, except keep list (only at root)
             const copyRecursiveSync = (src, dest) => {
               const entries = fs.readdirSync(src, { withFileTypes: true });
               for (const entry of entries) {
-                if (keep.includes(entry.name)) continue;
+                // Only skip keep list at root level
+                if (keep.includes(entry.name) && dest === cwd) continue;
                 const srcPath = path.join(src, entry.name);
                 const destPath = path.join(dest, entry.name);
                 if (entry.isDirectory()) {
@@ -154,6 +155,12 @@ export default {
               execSync(`powershell -Command \"Remove-Item '${tempDir}' -Recurse -Force\"`);
             } else {
               execSync(`rm -rf '${tempDir}'`);
+            }
+            // Debug: List root directory contents before restart
+            const afterUpdate = fs.readdirSync(cwd);
+            console.log('Root directory after update:', afterUpdate);
+            if (!fs.existsSync(path.join(cwd, 'src', 'index.js'))) {
+              console.error('src/index.js is missing after update!');
             }
             try {
               console.log('Update complete, exiting to allow manager to handle fresh start.');
@@ -209,10 +216,12 @@ export default {
             }
           } catch (e) {}
         }
+        // Copy new files from temp_update to cwd, except keep list (only at root)
         const copyRecursiveSync = (src, dest) => {
           const entries = fs.readdirSync(src, { withFileTypes: true });
           for (const entry of entries) {
-            if (keep.includes(entry.name)) continue;
+            // Only skip keep list at root level
+            if (keep.includes(entry.name) && dest === cwd) continue;
             const srcPath = path.join(src, entry.name);
             const destPath = path.join(dest, entry.name);
             if (entry.isDirectory()) {
