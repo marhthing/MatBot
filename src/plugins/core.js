@@ -20,7 +20,7 @@ export default {
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
-      async execute(ctx) {
+      async run(ctx) {
         await ctx.reply('🛑 Shutting down...');
         console.log('Shutdown command received, exiting process.');
         setTimeout(() => process.exit(0), 500);
@@ -36,7 +36,7 @@ export default {
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
-      async execute(ctx) {
+      async run(ctx) {
         await ctx.reply('♻️ Restarting...');
         console.log('Restart command received, exiting process to trigger manager restart.');
         if (ctx.bot && typeof ctx.bot.restart === 'function') {
@@ -56,7 +56,7 @@ export default {
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
-      async execute(ctx) {
+      async run(ctx) {
         // Only check for updates, do not handle .update now logic here
         try {
           const { execSync } = await import('child_process');
@@ -82,7 +82,7 @@ export default {
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
-      async execute(ctx) {
+      async run(ctx) {
         // Check if local git is up to date with remote, then reclone if not
         try {
           const { execSync } = await import('child_process');
@@ -184,7 +184,7 @@ export default {
       adminOnly: false,
       groupOnly: false,
       cooldown: 0,
-      async execute(ctx) {
+      async run(ctx) {
         await ctx.reply('Force updating.....');
         const fs = await import('fs');
         const { execSync } = await import('child_process');
