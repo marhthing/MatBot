@@ -162,13 +162,6 @@ export default {
             if (!fs.existsSync(path.join(cwd, 'src', 'index.js'))) {
               console.error('src/index.js is missing after update!');
             }
-            // Install packages before starting
-            await ctx.reply('📦 Installing packages...');
-            if (process.platform === 'win32') {
-              execSync('powershell -Command \"npm install\"', { stdio: 'inherit' });
-            } else {
-              execSync('npm install', { stdio: 'inherit' });
-            }
             try {
               console.log('Update complete, exiting to allow manager to handle fresh start.');
               process.exit(0);
@@ -244,13 +237,6 @@ export default {
           execSync(`powershell -Command \"Remove-Item '${tempDir}' -Recurse -Force\"`);
         } else {
           execSync(`rm -rf '${tempDir}'`);
-        }
-        // Install packages before starting
-        await ctx.reply('📦 Installing packages...');
-        if (process.platform === 'win32') {
-          execSync('powershell -Command "npm install"', { stdio: 'inherit' });
-        } else {
-          execSync('npm install', { stdio: 'inherit' });
         }
         // Start the root index.js in the foreground (interactive)
         execSync('node index.js', { stdio: 'inherit' });
