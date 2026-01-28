@@ -112,14 +112,24 @@ class PendingActions {
   }
 }
 
-// Centralized shouldReact helper for all plugins
-export function shouldReact() {
-  try {
-    const env = fs.readFileSync(path.join(process.cwd(), '.env'), 'utf8');
-    const match = env.match(/^BOT_REACTIONS=(on|off)/m);
-    return !match || match[1] === 'on';
-  } catch { return true; }
-}
+  // Centralized shouldReact helper for all plugins
+  export function shouldReact() {
+    try {
+      // Priority 1: envMemory (real-time loaded from .env)
+      if (typeof process.env.BOT_REACTIONS !== 'undefined') {
+        return process.env.BOT_REACTIONS === 'on';
+      }
+      
+      // Priority 2: Direct file read
+      const envPath = path.join(process.cwd(), '.env');
+      if (fs.existsSync(envPath)) {
+        const env = fs.readFileSync(envPath, 'utf8');
+        const match = env.match(/^BOT_REACTIONS=(on|off)/m);
+        if (match) return match[1] === 'on';
+      }
+      return true;
+    } catch { return true; }
+  }
 
 const pendingActions = new PendingActions();
 export default pendingActions;

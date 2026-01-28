@@ -2,7 +2,7 @@ import { TwitterDL } from 'twitter-downloader';
 import axios from 'axios';
 import fs from 'fs-extra';
 import path from 'path';
-import pendingActions from '../utils/pendingActions.js';
+import pendingActions, { shouldReact } from '../utils/pendingActions.js';
 
 const VIDEO_SIZE_LIMIT = 100 * 1024 * 1024;
 const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
@@ -125,13 +125,13 @@ export default {
             return await ctx.reply('Please provide a valid Twitter/X URL');
           }
 
-          await ctx.react('⏳');
+          if (shouldReact()) await ctx.react('⏳');
 
           try {
             const result = await TwitterDL(validatedUrl.url);
             
             if (!result || result.status !== 'success' || !result.result) {
-              await ctx.react('❌');
+              if (shouldReact()) await ctx.react('❌');
               return await ctx.reply('Could not fetch media. The tweet may be private or unavailable.');
             }
 
@@ -139,7 +139,7 @@ export default {
             const media = data.media || [];
             
             if (media.length === 0) {
-              await ctx.react('❌');
+              if (shouldReact()) await ctx.react('❌');
               return await ctx.reply('No media found in this tweet.');
             }
 
@@ -151,7 +151,7 @@ export default {
               const variants = video.videos || [];
               
               if (variants.length === 0) {
-                await ctx.react('❌');
+                if (shouldReact()) await ctx.react('❌');
                 return await ctx.reply('No downloadable video found.');
               }
 
@@ -171,7 +171,7 @@ export default {
                   type: 'video',
                   mimetype: 'video/mp4'
                 });
-                await ctx.react('✅');
+                if (shouldReact()) await ctx.react('✅');
                 return;
               }
 
@@ -218,14 +218,14 @@ export default {
                   handler: async (replyCtx, pending) => {
                     const choice = parseInt(replyCtx.text.trim(), 10);
                     const videoUrl = pending.data.qualities[choice - 1].url;
-                    await replyCtx.react('⏳');
+                    if (shouldReact()) await replyCtx.react('⏳');
                     
                     try {
                       const videoBuffer = await downloadMediaToBuffer(videoUrl);
                       const size = videoBuffer.length;
                       
                       if (size > VIDEO_SIZE_LIMIT) {
-                        await replyCtx.react('❌');
+                        if (shouldReact()) await replyCtx.react('❌');
                         return await replyCtx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
                       }
                       
@@ -241,16 +241,16 @@ export default {
                           mimetype: 'video/mp4'
                         });
                       }
-                      await replyCtx.react('✅');
+                      if (shouldReact()) await replyCtx.react('✅');
                     } catch (error) {
                       console.error('Twitter download error:', error);
-                      await replyCtx.react('❌');
+                      if (shouldReact()) await replyCtx.react('❌');
                       await replyCtx.reply('Failed to download selected quality.');
                     }
                   },
                   timeout: 10 * 60 * 1000
                 });
-                await ctx.react('');
+                if (shouldReact()) await ctx.react('');
                 
               } else {
                 const videoBuffer = await downloadMediaToBuffer(qualities[0].url);
@@ -258,7 +258,7 @@ export default {
                   type: 'video',
                   mimetype: 'video/mp4'
                 });
-                await ctx.react('✅');
+                if (shouldReact()) await ctx.react('✅');
               }
 
             } else if (images.length > 0) {
@@ -269,7 +269,7 @@ export default {
                   type: 'image',
                   mimetype: 'image/jpeg'
                 });
-                await ctx.react('✅');
+                if (shouldReact()) await ctx.react('✅');
               } else {
                 const qualities = images.map((img, idx) => ({
                   label: `${idx + 1} - Image #${idx + 1}`,
@@ -298,7 +298,7 @@ export default {
                   handler: async (replyCtx, pending) => {
                     const choice = parseInt(replyCtx.text.trim(), 10);
                     const selected = pending.data.qualities[choice - 1];
-                    await replyCtx.react('⏳');
+                    if (shouldReact()) await replyCtx.react('⏳');
                     
                     try {
                       if (selected.url === 'all') {
@@ -310,33 +310,33 @@ export default {
                           });
                           await new Promise(resolve => setTimeout(resolve, 1000));
                         }
-                        await replyCtx.react('✅');
+                        if (shouldReact()) await replyCtx.react('✅');
                       } else {
                         const imageBuffer = await downloadMediaToBuffer(selected.url);
                         await replyCtx._adapter.sendMedia(replyCtx.chatId, imageBuffer, {
                           type: 'image',
                           mimetype: 'image/jpeg'
                         });
-                        await replyCtx.react('✅');
+                        if (shouldReact()) await replyCtx.react('✅');
                       }
                     } catch (error) {
                       console.error('Twitter download error:', error);
-                      await replyCtx.react('❌');
+                      if (shouldReact()) await replyCtx.react('❌');
                       await replyCtx.reply('Failed to download selected media.');
                     }
                   },
                   timeout: 10 * 60 * 1000
                 });
-                await ctx.react('');
+                if (shouldReact()) await ctx.react('');
               }
             } else {
-              await ctx.react('❌');
+              if (shouldReact()) await ctx.react('❌');
               await ctx.reply('No downloadable media found in this tweet.');
             }
 
           } catch (error) {
             console.error('Twitter download failed:', error);
-            await ctx.react('❌');
+            if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
             if (error.message?.includes('private')) {
@@ -352,7 +352,7 @@ export default {
 
         } catch (error) {
           console.error('Twitter command error:', error);
-          await ctx.react('❌');
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing Twitter media');
         }
       }

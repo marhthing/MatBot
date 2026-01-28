@@ -2,7 +2,7 @@ import youtubedl from 'youtube-dl-exec';
 import axios from 'axios';
 import fs from 'fs-extra';
 import path from 'path';
-import pendingActions from '../utils/pendingActions.js';
+import pendingActions, { shouldReact } from '../utils/pendingActions.js';
 
 const VIDEO_SIZE_LIMIT = 100 * 1024 * 1024;
 const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
@@ -225,7 +225,7 @@ export default {
           const tempDir = path.join(process.cwd(), 'tmp');
           await fs.ensureDir(tempDir);
 
-          await ctx.react('⏳');
+          if (shouldReact()) await ctx.react('⏳');
 
           try {
             const { formats, title, outputPath, url: videoUrl } = await downloadWithYtDlp(validatedUrl.url, tempDir);
@@ -253,7 +253,7 @@ export default {
                 handler: async (replyCtx, pending) => {
                   const choice = parseInt(replyCtx.text.trim(), 10);
                   const formatId = pending.data.qualities[choice - 1].formatId;
-                  await replyCtx.react('⏳');
+                  if (shouldReact()) await replyCtx.react('⏳');
                   
                   try {
                     const newOutputPath = path.join(pending.data.tempDir, generateUniqueFilename('snap', 'mp4'));
@@ -261,7 +261,7 @@ export default {
                     
                     if (result.size > VIDEO_SIZE_LIMIT) {
                       await fs.unlink(result.path).catch(() => {});
-                      await replyCtx.react('❌');
+                      if (shouldReact()) await replyCtx.react('❌');
                       return await replyCtx.reply(`Video too large (${formatFileSize(result.size)}). Limit is 100MB.`);
                     }
                     
@@ -280,24 +280,24 @@ export default {
                       });
                     }
                     
-                    await replyCtx.react('✅');
+                    if (shouldReact()) await replyCtx.react('✅');
                     await fs.unlink(result.path).catch(() => {});
                   } catch (error) {
                     console.error('Snapchat download error:', error);
-                    await replyCtx.react('❌');
+                    if (shouldReact()) await replyCtx.react('❌');
                     await replyCtx.reply('Failed to download selected quality.');
                   }
                 },
                 timeout: 10 * 60 * 1000
               });
-              await ctx.react('');
+              if (shouldReact()) await ctx.react('');
               
             } else {
               const result = await downloadVideoWithFormat(videoUrl, 'best', outputPath);
               
               if (result.size > VIDEO_SIZE_LIMIT) {
                 await fs.unlink(result.path).catch(() => {});
-                await ctx.react('❌');
+                if (shouldReact()) await ctx.react('❌');
                 return await ctx.reply(`Video too large (${formatFileSize(result.size)}). Limit is 100MB.`);
               }
 
@@ -316,13 +316,13 @@ export default {
                 });
               }
 
-              await ctx.react('✅');
+              if (shouldReact()) await ctx.react('✅');
               await fs.unlink(result.path).catch(() => {});
             }
 
           } catch (error) {
             console.error('Snapchat download failed:', error);
-            await ctx.react('❌');
+            if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
             if (error.message?.includes('extract')) {
@@ -338,7 +338,7 @@ export default {
 
         } catch (error) {
           console.error('Snapchat command error:', error);
-          await ctx.react('❌');
+          if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing Snapchat media');
         }
       }

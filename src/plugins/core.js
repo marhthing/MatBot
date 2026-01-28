@@ -121,11 +121,13 @@ export default {
               }
             }
             try {
-              execSync('node index.js', { stdio: 'inherit' });
+              // Instead of calling index.js again (which is already running as a manager),
+              // we just exit and let the manager handle the restart or re-cloning.
+              console.log('Update complete, exiting to allow manager to handle fresh start.');
+              process.exit(0);
             } catch (e) {
-              await ctx.reply('❌ Error starting new process: ' + e.message);
+              await ctx.reply('❌ Error exiting process: ' + e.message);
             }
-            process.exit(0);
           }
         } catch (error) {
           await ctx.reply('❌ Error checking for updates: ' + error.message);
