@@ -4,11 +4,47 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import pendingActions, { shouldReact } from '../utils/pendingActions.js';
+import HttpsProxyAgent from 'https-proxy-agent';
 
 const execAsync = promisify(exec);
 const VIDEO_SIZE_LIMIT = 2 * 1024 * 1024 * 1024;
 const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
 const AUDIO_SIZE_LIMIT = 100 * 1024 * 1024;
+
+const PROXIES = (process.env.PROXIES || '').split(',').filter(p => p.trim());
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+];
+
+function getRandomProxy() {
+  return PROXIES.length > 0 ? PROXIES[Math.floor(Math.random() * PROXIES.length)] : null;
+}
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function getDownloadOptions(extra = {}) {
+  const proxy = getRandomProxy();
+  const options = {
+    noWarnings: true,
+    noCheckCertificates: true,
+    preferFreeFormats: true,
+    noPlaylist: true,
+    retries: 3,
+    socketTimeout: 30,
+    addHeader: [
+      'referer:https://www.youtube.com/',
+      `user-agent:${getRandomUserAgent()}`,
+      'accept-language:en-US,en;q=0.9'
+    ],
+    ...extra
+  };
+  if (proxy) options.proxy = proxy;
+  return options;
+}
 
 (async () => {
   try {
@@ -92,31 +128,20 @@ function formatViews(count) {
   return `${count} views`;
 }
 
-const commonOptions = {
-  noWarnings: true,
-  noCheckCertificates: true,
-  preferFreeFormats: true,
-  noPlaylist: true,
-  retries: 3,
-  socketTimeout: 30,
-  addHeader: [
-    'referer:youtube.com',
-    'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'accept-language:en-US,en;q=0.9'
-  ]
-};
+const commonOptions = {}; // Removed as we use getDownloadOptions now
 
 async function getVideoFormats(url) {
-  const info = await youtubedl(url, {
-    ...commonOptions,
-    dumpSingleJson: true
-  });
+  const options = getDownloadOptions({ dumpSingleJson: true });
+  const info = await youtubedl(url, options);
   
   const formats = [];
   const seenQualities = new Set();
   
   if (info.formats) {
     for (const format of info.formats) {
+      // Basic check for direct download availability
+      if (!format.url && !format.fragments) continue;
+
       if (format.vcodec && format.vcodec !== 'none' && format.acodec && format.acodec !== 'none') {
         const height = format.height || 0;
         let quality = '';
@@ -144,6 +169,8 @@ async function getVideoFormats(url) {
     
     if (formats.length === 0) {
       for (const format of info.formats) {
+        if (!format.url && !format.fragments) continue;
+
         if (format.vcodec && format.vcodec !== 'none') {
           const height = format.height || 0;
           let quality = '';
@@ -185,12 +212,12 @@ async function downloadVideoWithFormat(url, formatString, tempDir) {
   const outputPath = path.join(tempDir, uniqueFilename);
   
   try {
-    await youtubedl(url, {
+    const options = getDownloadOptions({
       output: outputPath,
       format: formatString,
-      mergeOutputFormat: 'mp4',
-      ...commonOptions
+      mergeOutputFormat: 'mp4'
     });
+    await youtubedl(url, options);
 
     if (await fs.pathExists(outputPath)) {
       const stats = await fs.stat(outputPath);
@@ -222,18 +249,16 @@ async function downloadAudioWithYtDlp(url, tempDir) {
   const outputPath = path.join(tempDir, uniqueFilename);
   
   try {
-    const info = await youtubedl(url, {
-      ...commonOptions,
-      dumpSingleJson: true
-    });
+    const infoOptions = getDownloadOptions({ dumpSingleJson: true });
+    const info = await youtubedl(url, infoOptions);
 
-    await youtubedl(url, {
+    const downloadOptions = getDownloadOptions({
       output: outputPath,
       extractAudio: true,
       audioFormat: 'm4a',
-      audioQuality: 0,
-      ...commonOptions
+      audioQuality: 0
     });
+    await youtubedl(url, downloadOptions);
 
     if (await fs.pathExists(outputPath)) {
       const stats = await fs.stat(outputPath);

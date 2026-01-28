@@ -172,6 +172,28 @@ export default class Bot extends EventEmitter {
 
     this.emit('message', messageContext);
 
+    // Check for sticker commands
+    if (messageContext.platform === 'whatsapp' && messageContext.raw?.message?.stickerMessage) {
+      try {
+        const stickerMessage = messageContext.raw.message.stickerMessage;
+        const fileSha256 = stickerMessage.fileSha256;
+        if (fileSha256) {
+          const stickerId = Buffer.from(fileSha256).toString('base64');
+          const storageUtil = (await import('../utils/storageUtil.js')).default;
+          const stickerCommands = storageUtil.getStickerCommands();
+          const boundCmd = stickerCommands[stickerId];
+          
+          if (boundCmd) {
+            this.logger.info(`Sticker command detected: ${boundCmd}`);
+            messageContext.command = boundCmd.split(/\s+/)[0];
+            messageContext.args = boundCmd.split(/\s+/).slice(1);
+          }
+        }
+      } catch (err) {
+        this.logger.error({ err }, '[handleMessage] Error checking sticker command');
+      }
+    }
+
     for (const handler of this.commandRegistry.getMessageHandlers()) {
       try {
         await handler(messageContext);

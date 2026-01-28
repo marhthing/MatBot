@@ -131,6 +131,72 @@ export default {
           await ctx.reply('❌ Failed to create sticker. Make sure the media is a valid image or video.');
         }
       }
+    },
+    {
+      name: 'setcmd',
+      description: 'Bind a command to a sticker',
+      usage: '.setcmd (reply to sticker) [command]',
+      category: 'media',
+      ownerOnly: true,
+      async execute(ctx) {
+        if (!ctx.quoted || ctx.quoted.type !== 'sticker') {
+          return await ctx.reply('❌ Please reply to a sticker to bind a command to it.');
+        }
+
+        const cmd = ctx.args[0];
+        if (!cmd) {
+          return await ctx.reply(`❌ Please specify the command to bind. Usage: ${this.usage}`);
+        }
+
+        const stickerMessage = ctx.quoted.message.stickerMessage;
+        const fileSha256 = stickerMessage.fileSha256;
+        
+        if (!fileSha256) {
+          return await ctx.reply('❌ Could not identify the sticker.');
+        }
+
+        const stickerId = Buffer.from(fileSha256).toString('base64');
+        const storageUtil = (await import('../utils/storageUtil.js')).default;
+        const stickerCommands = storageUtil.getStickerCommands();
+        
+        stickerCommands[stickerId] = cmd.startsWith('.') ? cmd.slice(1) : cmd;
+        storageUtil.setStickerCommands(stickerCommands);
+
+        await ctx.reply(`✅ Successfully bound command \`.${stickerCommands[stickerId]}\` to this sticker.`);
+      }
+    },
+    {
+      name: 'delcmd',
+      description: 'Unbind a command from a sticker',
+      usage: '.delcmd (reply to sticker)',
+      category: 'media',
+      ownerOnly: true,
+      async execute(ctx) {
+        if (!ctx.quoted || ctx.quoted.type !== 'sticker') {
+          return await ctx.reply('❌ Please reply to a sticker to unbind its command.');
+        }
+
+        const stickerMessage = ctx.quoted.message.stickerMessage;
+        const fileSha256 = stickerMessage.fileSha256;
+        
+        if (!fileSha256) {
+          return await ctx.reply('❌ Could not identify the sticker.');
+        }
+
+        const stickerId = Buffer.from(fileSha256).toString('base64');
+        const storageUtil = (await import('../utils/storageUtil.js')).default;
+        const stickerCommands = storageUtil.getStickerCommands();
+        
+        if (!stickerCommands[stickerId]) {
+          return await ctx.reply('❌ This sticker has no command bound to it.');
+        }
+
+        const oldCmd = stickerCommands[stickerId];
+        delete stickerCommands[stickerId];
+        storageUtil.setStickerCommands(stickerCommands);
+
+        await ctx.reply(`✅ Successfully unbound command \`.${oldCmd}\` from this sticker.`);
+      }
     }
   ]
 };

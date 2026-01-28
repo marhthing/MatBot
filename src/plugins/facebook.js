@@ -4,17 +4,41 @@ import youtubedl from 'youtube-dl-exec';
 import fs from 'fs-extra';
 import path from 'path';
 import pendingActions, { shouldReact } from '../utils/pendingActions.js';
+import HttpsProxyAgent from 'https-proxy-agent';
 
 const VIDEO_SIZE_LIMIT = 100 * 1024 * 1024;
 const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
 
+const PROXIES = (process.env.PROXIES || '').split(',').filter(p => p.trim());
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0'
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 ];
 
+function getRandomProxy() {
+  return PROXIES.length > 0 ? PROXIES[Math.floor(Math.random() * PROXIES.length)] : null;
+}
+
 const getRandomUserAgent = () => USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
+function getDownloadOptions(extra = {}) {
+  const proxy = getRandomProxy();
+  const options = {
+    noWarnings: true,
+    noCheckCertificates: true,
+    retries: 3,
+    socketTimeout: 30,
+    addHeader: [
+      'referer:https://www.facebook.com/',
+      `user-agent:${getRandomUserAgent()}`,
+      'accept-language:en-US,en;q=0.9'
+    ],
+    ...extra
+  };
+  if (proxy) options.proxy = proxy;
+  return options;
+}
 
 function generateUniqueFilename(prefix = 'fb', extension = 'mp4') {
   const timestamp = Date.now();
@@ -56,15 +80,8 @@ function formatFileSize(bytes) {
 
 async function getVideoFormatsWithYtDlp(url) {
   try {
-    const info = await youtubedl(url, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificates: true,
-      retries: 3,
-      addHeader: [
-        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-      ]
-    });
+    const options = getDownloadOptions({ dumpSingleJson: true });
+    const info = await youtubedl(url, options);
     
     if (!info) return null;
     
@@ -73,6 +90,8 @@ async function getVideoFormatsWithYtDlp(url) {
     
     if (info.formats) {
       for (const format of info.formats) {
+        if (!format.url && !format.fragments) continue;
+
         if (format.vcodec && format.vcodec !== 'none') {
           const height = format.height || 0;
           let quality = 'SD';
@@ -116,17 +135,11 @@ async function downloadVideoWithYtDlp(url, formatString, tempDir) {
   const outputPath = path.join(tempDir, uniqueFilename);
   
   try {
-    await youtubedl(url, {
+    const options = getDownloadOptions({
       output: outputPath,
-      format: formatString || 'best[ext=mp4]/best',
-      noWarnings: true,
-      noCheckCertificates: true,
-      retries: 3,
-      socketTimeout: 30,
-      addHeader: [
-        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-      ]
+      format: formatString || 'best[ext=mp4]/best'
     });
+    await youtubedl(url, options);
 
     if (await fs.pathExists(outputPath)) {
       const stats = await fs.stat(outputPath);
