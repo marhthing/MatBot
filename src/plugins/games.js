@@ -1,4 +1,5 @@
 import pendingActions, { shouldReact } from '../utils/pendingActions.js';
+import ai from '../utils/ai.js';
 
 const triviaQuestions = [
   { question: "What is the capital of France?", answer: "paris", options: ["London", "Paris", "Berlin", "Madrid"] },
@@ -496,49 +497,69 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const trivia = getRandomItem(triviaQuestions);
-          const shuffledOptions = shuffleArray(trivia.options);
+          const sendNextQuestion = async (replyCtx, score = 0, total = 0) => {
+            let trivia = ai.getCachedItem('trivia', triviaQuestions);
+            
+            if (!trivia || !trivia.question || !trivia.answer || !trivia.options) {
+              trivia = getRandomItem(triviaQuestions);
+            }
+            
+            const shuffledOptions = shuffleArray(trivia.options);
+            
+            let prompt = `*🎯 Trivia Question*\n\n${trivia.question}\n\n`;
+            shuffledOptions.forEach((opt, idx) => {
+              prompt += `${idx + 1}. ${opt}\n`;
+            });
+            prompt += `\n📊 Score: ${score}/${total}\n\nReply with the number or answer!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'trivia_game',
+              userId: replyCtx.senderId,
+              data: { answer: trivia.answer, options: shuffledOptions, score, total },
+              match: (text) => {
+                if (typeof text !== 'string') return false;
+                const clean = text.trim().toLowerCase();
+                return clean === 'stop' || clean.length > 0;
+              },
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*🎯 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const num = parseInt(userAnswer, 10);
+                let isCorrect = false;
+                
+                if (num >= 1 && num <= 4) {
+                  const selectedOption = pending.data.options[num - 1]?.toLowerCase() || '';
+                  isCorrect = selectedOption.includes(pending.data.answer) || pending.data.answer.includes(selectedOption);
+                } else {
+                  isCorrect = userAnswer.includes(pending.data.answer) || pending.data.answer.includes(userAnswer);
+                }
+                
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! The answer was: ${pending.data.answer}`);
+                }
+                
+                await sendNextQuestion(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          let prompt = `*🎯 Trivia Question*\n\n${trivia.question}\n\n`;
-          shuffledOptions.forEach((opt, idx) => {
-            prompt += `${idx + 1}. ${opt}\n`;
-          });
-          prompt += '\nReply with the number or answer!';
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'trivia_game',
-            userId: ctx.senderId,
-            data: { answer: trivia.answer, options: shuffledOptions },
-            match: (text) => {
-              if (typeof text !== 'string') return false;
-              const clean = text.trim().toLowerCase();
-              const num = parseInt(clean, 10);
-              return (num >= 1 && num <= 4) || clean.length > 0;
-            },
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim().toLowerCase();
-              const num = parseInt(userAnswer, 10);
-              
-              let isCorrect = false;
-              if (num >= 1 && num <= 4) {
-                const selectedOption = pending.data.options[num - 1].toLowerCase();
-                isCorrect = selectedOption.includes(pending.data.answer) || pending.data.answer.includes(selectedOption);
-              } else {
-                isCorrect = userAnswer.includes(pending.data.answer) || pending.data.answer.includes(userAnswer);
-              }
-              
-              if (isCorrect) {
-                await replyCtx.reply('✅ Correct! Great job!');
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! The correct answer was: ${pending.data.answer}`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 60 * 1000
-          });
+          await ctx.reply(`*🎯 Trivia Game Started!*\n\nAnswer questions to earn points.\nType *stop* anytime to quit.`);
+          await sendNextQuestion(ctx, 0, 0);
           
         } catch (error) {
           console.error('Trivia error:', error);
@@ -670,35 +691,50 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const puzzle = getRandomItem(emojiPuzzles);
+          const sendNextPuzzle = async (replyCtx, score = 0, total = 0) => {
+            const puzzle = getRandomItem(emojiPuzzles);
+            
+            const prompt = `*🎭 Emoji Puzzle*\n\nGuess what this represents:\n\n${puzzle.emoji}\n\nHint: ${puzzle.hint}\n\n📊 Score: ${score}/${total}\n\nReply with your answer!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'emoji_game',
+              userId: replyCtx.senderId,
+              data: { answer: puzzle.answer, score, total },
+              match: (text) => typeof text === 'string' && text.trim().length > 0,
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*🎭 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const correctAnswer = pending.data.answer.toLowerCase();
+                const isCorrect = userAnswer.includes(correctAnswer) || 
+                                 correctAnswer.includes(userAnswer) ||
+                                 userAnswer.split(' ').some(word => correctAnswer.includes(word));
+                
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct! The answer was *${pending.data.answer}*!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! The answer was: *${pending.data.answer}*`);
+                }
+                
+                await sendNextPuzzle(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          const prompt = `*🎭 Emoji Puzzle*\n\nGuess what this represents:\n\n${puzzle.emoji}\n\nHint: ${puzzle.hint}\n\nReply with your answer!`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'emoji_game',
-            userId: ctx.senderId,
-            data: { answer: puzzle.answer },
-            match: (text) => typeof text === 'string' && text.trim().length > 0,
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim().toLowerCase();
-              const correctAnswer = pending.data.answer.toLowerCase();
-              
-              const isCorrect = userAnswer.includes(correctAnswer) || 
-                               correctAnswer.includes(userAnswer) ||
-                               userAnswer.split(' ').some(word => correctAnswer.includes(word));
-              
-              if (isCorrect) {
-                await replyCtx.reply(`✅ Correct! The answer was *${pending.data.answer}*!`);
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! The answer was: *${pending.data.answer}*`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 60 * 1000
-          });
+          await ctx.reply(`*🎭 Emoji Puzzle Game Started!*\n\nGuess movies/things from emojis.\nType *stop* anytime to quit.`);
+          await sendNextPuzzle(ctx, 0, 0);
           
         } catch (error) {
           console.error('Emoji error:', error);
@@ -718,34 +754,50 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const problem = getRandomItem(mathProblems);
+          const sendNextProblem = async (replyCtx, score = 0, total = 0) => {
+            const problem = getRandomItem(mathProblems);
+            
+            const prompt = `*🔢 Math Challenge*\n\n${problem.question}\n\n📊 Score: ${score}/${total}\n\nReply with your answer!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'math_game',
+              userId: replyCtx.senderId,
+              data: { answer: problem.answer, score, total },
+              match: (text) => {
+                if (typeof text !== 'string') return false;
+                const clean = text.trim().toLowerCase();
+                return clean === 'stop' || !isNaN(parseInt(clean, 10));
+              },
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*🔢 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const isCorrect = userAnswer === pending.data.answer;
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! The answer was: ${pending.data.answer}`);
+                }
+                
+                await sendNextProblem(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 60 * 1000
+            });
+          };
           
-          const prompt = `*🔢 Math Challenge*\n\n${problem.question}\n\nReply with your answer! (You have 30 seconds)`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'math_game',
-            userId: ctx.senderId,
-            data: { answer: problem.answer },
-            match: (text) => {
-              if (typeof text !== 'string') return false;
-              const num = parseInt(text.trim(), 10);
-              return !isNaN(num);
-            },
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim();
-              
-              if (userAnswer === pending.data.answer) {
-                await replyCtx.reply(`✅ Correct! Great math skills!`);
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! The answer was: ${pending.data.answer}`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 30 * 1000
-          });
+          await ctx.reply(`*🔢 Math Challenge Started!*\n\nSolve math problems to earn points.\nType *stop* anytime to quit.`);
+          await sendNextProblem(ctx, 0, 0);
           
         } catch (error) {
           console.error('Math error:', error);
@@ -1032,10 +1084,16 @@ export default {
               const isTruth = choice === 'truth' || choice === 't';
               
               if (isTruth) {
-                const truth = getRandomItem(truthQuestions);
+                let truth = ai.getCachedItem('truth', truthQuestions);
+                if (!truth || typeof truth !== 'string') {
+                  truth = getRandomItem(truthQuestions);
+                }
                 await replyCtx.reply(`*🤔 Truth*\n\n${truth}`);
               } else {
-                const dare = getRandomItem(dareActions);
+                let dare = ai.getCachedItem('dare', dareActions);
+                if (!dare || typeof dare !== 'string') {
+                  dare = getRandomItem(dareActions);
+                }
                 await replyCtx.reply(`*😈 Dare*\n\n${dare}`);
               }
             },
@@ -1059,7 +1117,10 @@ export default {
       groupOnly: false,
       cooldown: 3,
       async execute(ctx) {
-        const truth = getRandomItem(truthQuestions);
+        let truth = ai.getCachedItem('truth', truthQuestions);
+        if (!truth || typeof truth !== 'string') {
+          truth = getRandomItem(truthQuestions);
+        }
         await ctx.reply(`*🤔 Truth*\n\n${truth}`);
       }
     },
@@ -1074,7 +1135,10 @@ export default {
       groupOnly: false,
       cooldown: 3,
       async execute(ctx) {
-        const dare = getRandomItem(dareActions);
+        let dare = ai.getCachedItem('dare', dareActions);
+        if (!dare || typeof dare !== 'string') {
+          dare = getRandomItem(dareActions);
+        }
         await ctx.reply(`*😈 Dare*\n\n${dare}`);
       }
     },
@@ -1181,31 +1245,49 @@ export default {
       cooldown: 3,
       async execute(ctx) {
         try {
-          const question = getRandomItem(wouldYouRatherQuestions);
+          const sendNextQuestion = async (replyCtx, count = 0) => {
+            let question = ai.getCachedItem('wouldYouRather', wouldYouRatherQuestions);
+            
+            if (!question || !question.a || !question.b) {
+              question = getRandomItem(wouldYouRatherQuestions);
+            }
+            
+            const prompt = `*🤔 Would You Rather*\n\n🅰️ ${question.a}\n\nor\n\n🅱️ ${question.b}\n\nReply with A or B!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'wyr_game',
+              userId: replyCtx.senderId,
+              data: { question, count },
+              match: (text) => {
+                if (typeof text !== 'string') return false;
+                const clean = text.trim().toLowerCase();
+                return clean === 'stop' || ['a', 'b', '1', '2'].includes(clean);
+              },
+              handler: async (answerCtx, pending) => {
+                const choice = answerCtx.text.trim().toLowerCase();
+                
+                if (choice === 'stop') {
+                  await answerCtx.reply(`*🤔 Game Over!*\n\nYou answered ${pending.data.count} questions!\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const isA = choice === 'a' || choice === '1';
+                const chosen = isA ? pending.data.question.a : pending.data.question.b;
+                
+                await answerCtx.reply(`You chose: *${chosen}* 🧐`);
+                if (shouldReact()) await answerCtx.react(isA ? '🅰️' : '🅱️');
+                
+                await sendNextQuestion(answerCtx, pending.data.count + 1);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          const prompt = `*🤔 Would You Rather*\n\n🅰️ ${question.a}\n\nor\n\n🅱️ ${question.b}\n\nReply with A or B!`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'wyr_game',
-            userId: ctx.senderId,
-            data: { question },
-            match: (text) => {
-              if (typeof text !== 'string') return false;
-              const clean = text.trim().toLowerCase();
-              return ['a', 'b', '1', '2'].includes(clean);
-            },
-            handler: async (replyCtx, pending) => {
-              const choice = replyCtx.text.trim().toLowerCase();
-              const isA = choice === 'a' || choice === '1';
-              const chosen = isA ? pending.data.question.a : pending.data.question.b;
-              
-              await replyCtx.reply(`You chose: *${chosen}*\n\nInteresting choice! 🧐`);
-              if (shouldReact()) await replyCtx.react(isA ? '🅰️' : '🅱️');
-            },
-            timeout: 60 * 1000
-          });
+          await ctx.reply(`*🤔 Would You Rather Game Started!*\n\nType *stop* anytime to quit.`);
+          await sendNextQuestion(ctx, 0);
           
         } catch (error) {
           console.error('WYR error:', error);
@@ -1229,7 +1311,7 @@ export default {
           
           const sentMsg = await ctx.reply(prompt);
           
-          const questions = [
+          const fallbackQuestions = [
             "Is it alive or was it ever alive?",
             "Is it a person?",
             "Is it an animal?",
@@ -1255,7 +1337,7 @@ export default {
           pendingActions.set(ctx.chatId, sentMsg.key.id, {
             type: 'akinator_start',
             userId: ctx.senderId,
-            data: { questionIndex: 0, answers: [] },
+            data: { questionIndex: 0, answers: [], questionHistory: [] },
             match: (text) => {
               if (typeof text !== 'string') return false;
               return text.trim().toLowerCase() === 'ready';
@@ -1273,29 +1355,36 @@ export default {
                   },
                   handler: async (answerCtx, qPending) => {
                     const answer = answerCtx.text.trim().toLowerCase();
+                    const lastQuestion = qPending.data.questionHistory[qPending.data.questionHistory.length - 1];
+                    if (lastQuestion) {
+                      lastQuestion.answer = answer;
+                    }
                     qPending.data.answers.push(answer);
                     qPending.data.questionIndex++;
                     
-                    if (qPending.data.questionIndex >= 10) {
-                      const guesses = [
-                        "A smartphone",
-                        "A dog",
-                        "A famous singer",
-                        "A video game",
-                        "A book",
-                        "The sun",
-                        "A car",
-                        "Pizza",
-                        "A celebrity",
-                        "A computer"
-                      ];
-                      const guess = getRandomItem(guesses);
-                      await answerCtx.reply(`*🎯 My Guess*\n\nIs it... *${guess}*?\n\nReply *yes* if I'm right, *no* if I'm wrong!`);
+                    if (qPending.data.questionIndex >= 15) {
+                      await answerCtx.react('🤔');
+                      let guess = await ai.analyzeAkinatorAnswers(qPending.data.answers, qPending.data.questionHistory);
+                      
+                      if (!guess) {
+                        const fallbackGuesses = ["A smartphone", "A dog", "A celebrity", "A car", "Pizza"];
+                        guess = getRandomItem(fallbackGuesses);
+                      }
+                      
+                      await answerCtx.reply(`*🎯 My AI Guess*\n\nIs it... *${guess}*?\n\nWas I right? 🧞`);
+                      if (shouldReact()) await answerCtx.react('🎯');
                       return true;
                     }
                     
-                    const nextQ = questions[qPending.data.questionIndex];
-                    const newMsg = await answerCtx.reply(`*❓ Question ${qPending.data.questionIndex + 1}/10*\n\n${nextQ}\n\nReply: yes / no / maybe`);
+                    let nextQ = await ai.generateAkinatorQuestion(qPending.data.questionHistory, qPending.data.answers);
+                    
+                    if (!nextQ) {
+                      nextQ = fallbackQuestions[qPending.data.questionIndex] || fallbackQuestions[Math.floor(Math.random() * fallbackQuestions.length)];
+                    }
+                    
+                    qPending.data.questionHistory.push({ question: nextQ, answer: null });
+                    
+                    const newMsg = await answerCtx.reply(`*❓ Question ${qPending.data.questionIndex + 1}/15*\n\n${nextQ}\n\nReply: yes / no / maybe`);
                     setupQuestion(newMsg.key.id, qPending.data);
                     return false;
                   },
@@ -1303,8 +1392,9 @@ export default {
                 });
               };
               
-              const firstQ = questions[0];
-              const newMsg = await replyCtx.reply(`*❓ Question 1/10*\n\n${firstQ}\n\nReply: yes / no / maybe`);
+              const firstQ = fallbackQuestions[0];
+              pending.data.questionHistory.push({ question: firstQ, answer: null });
+              const newMsg = await replyCtx.reply(`*❓ Question 1/15*\n\n${firstQ}\n\nReply: yes / no / maybe`);
               setupQuestion(newMsg.key.id, pending.data);
             },
             timeout: 60 * 1000
@@ -1328,33 +1418,52 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const riddle = getRandomItem(riddles);
+          const sendNextRiddle = async (replyCtx, score = 0, total = 0) => {
+            let riddle = ai.getCachedItem('riddles', riddles);
+            
+            if (!riddle || !riddle.riddle || !riddle.answer) {
+              riddle = getRandomItem(riddles);
+            }
+            
+            const prompt = `*🧩 Riddle*\n\n${riddle.riddle}\n\nHint: ${riddle.hint}\n\n📊 Score: ${score}/${total}\n\nReply with your answer!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'riddle_game',
+              userId: replyCtx.senderId,
+              data: { answer: riddle.answer, score, total },
+              match: (text) => typeof text === 'string' && text.trim().length > 0,
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*🧩 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const correctAnswer = pending.data.answer.toLowerCase();
+                const isCorrect = userAnswer.includes(correctAnswer) || correctAnswer.includes(userAnswer);
+                
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct! The answer was *${pending.data.answer}*!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! The answer was: *${pending.data.answer}*`);
+                }
+                
+                await sendNextRiddle(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          const prompt = `*🧩 Riddle*\n\n${riddle.riddle}\n\nHint: ${riddle.hint}\n\nReply with your answer!`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'riddle_game',
-            userId: ctx.senderId,
-            data: { answer: riddle.answer },
-            match: (text) => typeof text === 'string' && text.trim().length > 0,
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim().toLowerCase();
-              const correctAnswer = pending.data.answer.toLowerCase();
-              
-              const isCorrect = userAnswer.includes(correctAnswer) || correctAnswer.includes(userAnswer);
-              
-              if (isCorrect) {
-                await replyCtx.reply(`✅ Correct! The answer was *${pending.data.answer}*!`);
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! The answer was: *${pending.data.answer}*`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 90 * 1000
-          });
+          await ctx.reply(`*🧩 Riddle Game Started!*\n\nSolve riddles to earn points.\nType *stop* anytime to quit.`);
+          await sendNextRiddle(ctx, 0, 0);
           
         } catch (error) {
           console.error('Riddle error:', error);
@@ -1374,33 +1483,49 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const data = getRandomItem(capitals);
+          const sendNextQuestion = async (replyCtx, score = 0, total = 0) => {
+            const data = getRandomItem(capitals);
+            
+            const prompt = `*🌍 Capital Quiz*\n\nWhat is the capital of *${data.country}*?\n\n📊 Score: ${score}/${total}\n\nReply with your answer!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'capital_game',
+              userId: replyCtx.senderId,
+              data: { answer: data.capital.toLowerCase(), score, total },
+              match: (text) => typeof text === 'string' && text.trim().length > 0,
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*🌍 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const isCorrect = userAnswer === pending.data.answer || 
+                                 userAnswer.includes(pending.data.answer) ||
+                                 pending.data.answer.includes(userAnswer);
+                
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct! The capital is *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! The capital is *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*`);
+                }
+                
+                await sendNextQuestion(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          const prompt = `*🌍 Capital Quiz*\n\nWhat is the capital of *${data.country}*?\n\nReply with your answer!`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'capital_game',
-            userId: ctx.senderId,
-            data: { answer: data.capital.toLowerCase() },
-            match: (text) => typeof text === 'string' && text.trim().length > 0,
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim().toLowerCase();
-              const isCorrect = userAnswer === pending.data.answer || 
-                               userAnswer.includes(pending.data.answer) ||
-                               pending.data.answer.includes(userAnswer);
-              
-              if (isCorrect) {
-                await replyCtx.reply(`✅ Correct! The capital is *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*!`);
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! The capital is *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 60 * 1000
-          });
+          await ctx.reply(`*🌍 Capital Quiz Started!*\n\nGuess capitals to earn points.\nType *stop* anytime to quit.`);
+          await sendNextQuestion(ctx, 0, 0);
           
         } catch (error) {
           console.error('Capital error:', error);
@@ -1420,34 +1545,50 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const data = getRandomItem(flagQuiz);
+          const sendNextQuestion = async (replyCtx, score = 0, total = 0) => {
+            const data = getRandomItem(flagQuiz);
+            
+            const prompt = `*🏳️ Flag Quiz*\n\nWhich country does this flag belong to?\n\n${data.emoji}\n\n📊 Score: ${score}/${total}\n\nReply with your answer!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'flag_game',
+              userId: replyCtx.senderId,
+              data: { answer: data.answer, alt: data.alt, score, total },
+              match: (text) => typeof text === 'string' && text.trim().length > 0,
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*🏳️ Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const isCorrect = userAnswer === pending.data.answer || 
+                                 userAnswer.includes(pending.data.answer) ||
+                                 pending.data.answer.includes(userAnswer) ||
+                                 pending.data.alt.some(a => userAnswer.includes(a) || a.includes(userAnswer));
+                
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct! It's *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! It's *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*`);
+                }
+                
+                await sendNextQuestion(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          const prompt = `*🏳️ Flag Quiz*\n\nWhich country does this flag belong to?\n\n${data.emoji}\n\nReply with your answer!`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'flag_game',
-            userId: ctx.senderId,
-            data: { answer: data.answer, alt: data.alt },
-            match: (text) => typeof text === 'string' && text.trim().length > 0,
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim().toLowerCase();
-              const isCorrect = userAnswer === pending.data.answer || 
-                               userAnswer.includes(pending.data.answer) ||
-                               pending.data.answer.includes(userAnswer) ||
-                               pending.data.alt.some(a => userAnswer.includes(a) || a.includes(userAnswer));
-              
-              if (isCorrect) {
-                await replyCtx.reply(`✅ Correct! It's *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*!`);
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! It's *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 60 * 1000
-          });
+          await ctx.reply(`*🏳️ Flag Quiz Started!*\n\nGuess countries from flags to earn points.\nType *stop* anytime to quit.`);
+          await sendNextQuestion(ctx, 0, 0);
           
         } catch (error) {
           console.error('Flag error:', error);
@@ -1534,34 +1675,50 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const data = getRandomItem(quoteAuthors);
+          const sendNextQuote = async (replyCtx, score = 0, total = 0) => {
+            const data = getRandomItem(quoteAuthors);
+            
+            const prompt = `*💬 Quote Quiz*\n\nWho said this famous quote?\n\n"${data.quote}"\n\n📊 Score: ${score}/${total}\n\nReply with the person's name!\n_(Type *stop* to quit)_`;
+            
+            const sentMsg = await replyCtx.reply(prompt);
+            
+            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
+              type: 'quote_game',
+              userId: replyCtx.senderId,
+              data: { answer: data.author.toLowerCase(), alt: data.alt, score, total },
+              match: (text) => typeof text === 'string' && text.trim().length > 0,
+              handler: async (answerCtx, pending) => {
+                const userAnswer = answerCtx.text.trim().toLowerCase();
+                
+                if (userAnswer === 'stop') {
+                  await answerCtx.reply(`*💬 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
+                  return true;
+                }
+                
+                const isCorrect = userAnswer === pending.data.answer || 
+                                 userAnswer.includes(pending.data.answer) ||
+                                 pending.data.answer.includes(userAnswer) ||
+                                 pending.data.alt.some(a => userAnswer.includes(a) || a.includes(userAnswer));
+                
+                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
+                const newTotal = pending.data.total + 1;
+                
+                if (isCorrect) {
+                  await answerCtx.reply(`✅ Correct! It was *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*!`);
+                  if (shouldReact()) await answerCtx.react('🎉');
+                } else {
+                  await answerCtx.reply(`❌ Wrong! It was *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*`);
+                }
+                
+                await sendNextQuote(answerCtx, newScore, newTotal);
+                return false;
+              },
+              timeout: 2 * 60 * 1000
+            });
+          };
           
-          const prompt = `*💬 Quote Quiz*\n\nWho said this famous quote?\n\n"${data.quote}"\n\nReply with the person's name!`;
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'quote_game',
-            userId: ctx.senderId,
-            data: { answer: data.author.toLowerCase(), alt: data.alt },
-            match: (text) => typeof text === 'string' && text.trim().length > 0,
-            handler: async (replyCtx, pending) => {
-              const userAnswer = replyCtx.text.trim().toLowerCase();
-              const isCorrect = userAnswer === pending.data.answer || 
-                               userAnswer.includes(pending.data.answer) ||
-                               pending.data.answer.includes(userAnswer) ||
-                               pending.data.alt.some(a => userAnswer.includes(a) || a.includes(userAnswer));
-              
-              if (isCorrect) {
-                await replyCtx.reply(`✅ Correct! It was *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*!`);
-                if (shouldReact()) await replyCtx.react('🎉');
-              } else {
-                await replyCtx.reply(`❌ Wrong! It was *${pending.data.answer.charAt(0).toUpperCase() + pending.data.answer.slice(1)}*`);
-                if (shouldReact()) await replyCtx.react('❌');
-              }
-            },
-            timeout: 60 * 1000
-          });
+          await ctx.reply(`*💬 Quote Quiz Started!*\n\nGuess who said famous quotes.\nType *stop* anytime to quit.`);
+          await sendNextQuote(ctx, 0, 0);
           
         } catch (error) {
           console.error('Quote error:', error);
