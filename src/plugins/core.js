@@ -2,6 +2,8 @@
 import { writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 
+const cwd = process.cwd();
+
 export default {
   name: 'core',
   description: 'Bot process management commands: .shutdown, .update, .restart',
