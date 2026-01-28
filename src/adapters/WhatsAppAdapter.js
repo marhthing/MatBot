@@ -274,6 +274,16 @@ export default class WhatsAppAdapter extends BaseAdapter {
     
     senderId = jidNormalizedUser(senderId);
 
+    // Normalize LID to JID if possible for isOwner check
+    let normalizedSenderForOwnerCheck = senderId;
+    if (senderId.endsWith('@lid')) {
+        const pn = await this.client.signalRepository.lidMapping.getPNForLID(senderId);
+        if (pn) {
+          normalizedSenderForOwnerCheck = jidNormalizedUser(pn);
+          this.logger.debug({ senderId, resolvedPn: normalizedSenderForOwnerCheck }, 'Resolved LID for owner check');
+        }
+    }
+
     let text = msg.message?.conversation ||
                msg.message?.extendedTextMessage?.text ||
                msg.message?.imageMessage?.caption ||
@@ -288,9 +298,10 @@ export default class WhatsAppAdapter extends BaseAdapter {
       args = parts.slice(1);
     }
 
-    const isOwner = senderId.split('@')[0] === this.config.ownerNumber || 
-                    senderId === this.config.ownerNumber || 
-                    senderId === jidNormalizedUser(this.config.ownerNumber + '@s.whatsapp.net');
+    const isOwner = normalizedSenderForOwnerCheck.split('@')[0] === this.config.ownerNumber || 
+                    normalizedSenderForOwnerCheck === this.config.ownerNumber || 
+                    normalizedSenderForOwnerCheck === jidNormalizedUser(this.config.ownerNumber + '@s.whatsapp.net') ||
+                    senderId.split('@')[0] === this.config.ownerNumber;
 
     let isAdmin = false;
     if (isGroup) {
@@ -427,6 +438,52 @@ export default class WhatsAppAdapter extends BaseAdapter {
 
   async deleteMessage(chatId, messageId) {
     return await this.client.sendMessage(chatId, { delete: { id: messageId, remoteJid: chatId } });
+  }
+
+  async clearChat(chatId) {
+    try {
+      // Baileys requires the key and timestamp of the last message to clear/delete a chat properly
+      const lastMsg = memoryStore.getLatestMessage('whatsapp', chatId);
+      
+      this.logger.info({ chatId, hasLastMsg: !!lastMsg }, 'Attempting to clear chat');
+
+      // 1. First attempt: Delete for me (clears history but keeps chat in list)
+      try {
+        await this.client.chatModify({
+          clear: {
+            messages: lastMsg ? [{
+              key: lastMsg.key,
+              messageTimestamp: lastMsg.messageTimestamp
+            }] : []
+          }
+        }, chatId);
+      } catch (e) {
+        this.logger.warn({ error: e.message, chatId }, 'Chat clear failed, trying delete');
+      }
+
+      // 2. Second attempt: Delete chat (removes from list)
+      await this.client.chatModify(
+        { 
+          delete: true,
+          lastMessages: lastMsg ? [{
+            key: lastMsg.key,
+            messageTimestamp: lastMsg.messageTimestamp
+          }] : []
+        }, 
+        chatId
+      );
+      
+      return true;
+    } catch (error) {
+      this.logger.error({ error: error.message, chatId }, 'Failed to clear chat');
+      // Final fallback: old style clear if possible
+      try {
+        await this.client.chatModify({ clear: 'all' }, chatId);
+        return true;
+      } catch (e) {
+        throw error;
+      }
+    }
   }
 
   async downloadMedia(mediaInfo) {

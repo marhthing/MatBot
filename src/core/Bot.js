@@ -149,7 +149,8 @@ export default class Bot extends EventEmitter {
       isCommand: !!messageContext.command,
       text: messageContext.text,
       chatId: messageContext.chatId,
-      senderId: messageContext.senderId
+      senderId: messageContext.senderId,
+      isOwner: messageContext.isOwner
     }, '[handleMessage] Received message');
 
     let handled = false;
@@ -193,7 +194,7 @@ export default class Bot extends EventEmitter {
               const contextInfo = messageContext.raw.message?.stickerMessage?.contextInfo;
               if (contextInfo?.quotedMessage) {
                 // The sticker is replying to someone/something.
-                // Reconstruct the quoted context so the command (like .save) sees the QUOTED message as the target.
+                // Reconstruct the quoted context so the command sees the QUOTED message as the target.
                 let quotedSenderId = contextInfo.participant || contextInfo.remoteJid;
                 if (quotedSenderId?.endsWith('@lid')) {
                   try {
@@ -250,8 +251,17 @@ export default class Bot extends EventEmitter {
                   }
                 };
               } else {
-                // If not a reply, the command targets the sticker itself.
+                // If NOT a reply, the command should just run as a normal command.
+                // We don't want the sticker itself to be the "target" (quoted) of the command.
                 messageContext.quoted = null;
+                
+                // IMPORTANT: We must also remove the stickerMessage from raw.message
+                // so that plugins like 'save' that check raw.message don't find the sticker.
+                if (messageContext.raw.message?.stickerMessage) {
+                  delete messageContext.raw.message.stickerMessage;
+                }
+                
+                this.logger.info(`Running sticker command "${messageContext.command}" without target (no reply).`);
               }
             }
         }

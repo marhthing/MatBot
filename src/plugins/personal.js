@@ -51,6 +51,32 @@ export default {
           await ctx.reply(`❌ Failed to update bio: ${error.message}`);
         }
       }
+    },
+    {
+      name: 'clr',
+      aliases: ['clearchat'],
+      description: 'Clear chat conversation (local)',
+      usage: '.clr',
+      execute: async (ctx) => {
+        try {
+          if (!ctx.isOwner) return;
+          if (ctx.platform !== 'whatsapp') {
+            return await ctx.reply('❌ This command is only available on WhatsApp.');
+          }
+          
+          // Delete the command message first
+          try {
+            await ctx._adapter.deleteMessage(ctx.chatId, ctx.messageId);
+          } catch (e) {
+            // Ignore if deletion fails
+          }
+          
+          await ctx._adapter.clearChat(ctx.chatId);
+        } catch (error) {
+          console.error(`Error in .clr command: ${error.message}`);
+          await ctx.reply('❌ Failed to clear chat.');
+        }
+      }
     }
   ]
 };

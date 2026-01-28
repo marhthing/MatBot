@@ -36,6 +36,14 @@ class MemoryStore {
     return this.messages[platform]?.[chatId] || {};
   }
 
+  getLatestMessage(platform, chatId) {
+    const chatStore = this.messages[platform]?.[chatId];
+    if (!chatStore) return null;
+    const entries = Object.values(chatStore);
+    if (entries.length === 0) return null;
+    return entries.sort((a, b) => (b.messageTimestamp || 0) - (a.messageTimestamp || 0))[0];
+  }
+
   deleteMessage(platform, chatId, messageId) {
     if (this.messages[platform]?.[chatId]) {
       delete this.messages[platform][chatId][messageId];
