@@ -7,6 +7,7 @@ function ensureDependencies() {
   const nodeModulesPath = path.join(process.cwd(), 'node_modules');
   const pkgPath = path.join(process.cwd(), 'package.json');
   let needInstall = false;
+  let missingDeps = [];
   if (!fs.existsSync(nodeModulesPath)) {
     needInstall = true;
   } else {
@@ -14,22 +15,31 @@ function ensureDependencies() {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       for (const dep of Object.keys(pkg.dependencies || {})) {
         if (!fs.existsSync(path.join(nodeModulesPath, dep))) {
-          needInstall = true;
-          break;
+          missingDeps.push(dep);
         }
       }
+      if (missingDeps.length > 0) needInstall = true;
     } catch {}
   }
   if (needInstall) {
-    // Use console.log here, logger may not be available yet
-    console.log('Installing missing packages...');
-    try {
-      execSync('npm install', { stdio: 'inherit' });
-      console.log('All packages installed. Please restart the bot.');
-      process.exit(0); // Exit cleanly so the manager restarts and loads with packages
-    } catch (e) {
-      console.error('Failed to install packages', e);
-      process.exit(1);
+    if (missingDeps.length > 0) {
+      console.log('Installing missing packages:', missingDeps.join(', '));
+      try {
+        execSync(`npm install ${missingDeps.join(' ')}`, { stdio: 'inherit' });
+        console.log('Missing packages installed.');
+      } catch (e) {
+        console.error('Failed to install missing packages', e);
+        process.exit(1);
+      }
+    } else {
+      console.log('node_modules missing, running full npm install...');
+      try {
+        execSync('npm install', { stdio: 'inherit' });
+        console.log('All packages installed.');
+      } catch (e) {
+        console.error('Failed to install packages', e);
+        process.exit(1);
+      }
     }
   }
 }
