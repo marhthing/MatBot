@@ -100,7 +100,7 @@ export default {
             await ctx.reply('🗑️ Update available! updating....');
             const fs = await import('fs');
             const path = await import('path');
-            const keep = ['.env', 'session', 'index.js'];
+            const keep = ['.env', 'session', 'index.js', 'storage'];
             const cwd = process.cwd();
             const all = fs.readdirSync(cwd);
             for (const item of all) {
@@ -150,7 +150,7 @@ export default {
         const { execSync } = await import('child_process');
         const path = await import('path');
         // Delete everything except .env, session folder, and root index.js
-        const keep = ['.env', 'session', 'index.js'];
+        const keep = ['.env', 'session', 'index.js', 'storage'];
         const cwd = process.cwd();
         const all = fs.readdirSync(cwd);
         for (const item of all) {
