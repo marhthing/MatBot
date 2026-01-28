@@ -5,11 +5,47 @@ import watchFilesAndFolders from './utils/watcher.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import envMemory from './utils/envMemory.js';
+import { execSync } from 'child_process';
+import fs from 'fs';
 dotenv.config();
 
 /**
  * Main entry point for MATDEV Universal Bot
  */
+
+// Check if node_modules exists and all dependencies are installed
+function ensureDependencies() {
+  const nodeModulesPath = path.join(process.cwd(), 'node_modules');
+  const pkgPath = path.join(process.cwd(), 'package.json');
+  let needInstall = false;
+  if (!fs.existsSync(nodeModulesPath)) {
+    needInstall = true;
+  } else {
+    // Check if all dependencies in package.json are present in node_modules
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      for (const dep of Object.keys(pkg.dependencies || {})) {
+        if (!fs.existsSync(path.join(nodeModulesPath, dep))) {
+          needInstall = true;
+          break;
+        }
+      }
+    } catch {}
+  }
+  if (needInstall) {
+    logger.info('Installing missing packages...');
+    try {
+      execSync('npm install', { stdio: 'inherit', shell: 'powershell.exe' });
+      logger.info('All packages installed.');
+    } catch (e) {
+      logger.error({ error: e }, 'Failed to install packages');
+      process.exit(1);
+    }
+  }
+}
+
+// Ensure dependencies before starting bot
+ensureDependencies();
 
 const bot = new Bot(config);
 
