@@ -59,18 +59,16 @@ export default {
       usage: '.clr',
       execute: async (ctx) => {
         try {
-          if (!ctx.isOwner) return;
+          // Allow .clr in any chat (group, owner, or private)
           if (ctx.platform !== 'whatsapp') {
             return await ctx.reply('❌ This command is only available on WhatsApp.');
           }
-          
           // Delete the command message first
           try {
             await ctx._adapter.deleteMessage(ctx.chatId, ctx.messageId);
           } catch (e) {
             // Ignore if deletion fails
           }
-          
           await ctx._adapter.clearChat(ctx.chatId);
         } catch (error) {
           console.error(`Error in .clr command: ${error.message}`);
