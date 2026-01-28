@@ -76,7 +76,7 @@ export default {
         // Import config for sticker pack/author
         let config;
         try {
-          config = (await import('../../config/default.js')).default;
+          config = (await import('../config/default.js')).default;
         } catch (e) {
           config = {};
         }

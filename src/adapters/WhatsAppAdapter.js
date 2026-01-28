@@ -560,6 +560,8 @@ export default class WhatsAppAdapter extends BaseAdapter {
       message.document = mediaBuffer;
       message.mimetype = mimetype || 'application/octet-stream';
       if (options.fileName) message.fileName = options.fileName;
+    } else if (type === 'sticker') {
+      message.sticker = mediaBuffer;
     } else {
       throw new Error('Unsupported media type: ' + type);
     }

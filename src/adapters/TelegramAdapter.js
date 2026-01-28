@@ -13,64 +13,101 @@ export default class TelegramAdapter extends BaseAdapter {
   }
 
   async connect() {
-    this.client = new Telegraf(this.config.telegram.token);
+    this.logger.info('TelegramAdapter.connect() called');
+    try {
+      this.client = new Telegraf(this.config.telegram.token);
+      this.logger.info('Telegraf instance created');
 
-    // Handle all text messages
-    this.client.on(messageFilter('text'), async (ctx) => {
+      // Handle all text messages
+      this.client.on(messageFilter('text'), async (ctx) => {
+        try {
+          const messageContext = await this.parseMessage(ctx);
+          this.emitMessage(messageContext);
+        } catch (error) {
+          this.logger.error({ error }, 'Failed to parse Telegram message');
+        }
+      });
+
+      // Handle media messages
+      this.client.on(messageFilter('photo'), async (ctx) => {
+        try {
+          const messageContext = await this.parseMessage(ctx);
+          this.emitMessage(messageContext);
+        } catch (error) {
+          this.logger.error({ error }, 'Failed to parse Telegram photo');
+        }
+      });
+
+      this.client.on(messageFilter('video'), async (ctx) => {
+        try {
+          const messageContext = await this.parseMessage(ctx);
+          this.emitMessage(messageContext);
+        } catch (error) {
+          this.logger.error({ error }, 'Failed to parse Telegram video');
+        }
+      });
+
+      this.client.on(messageFilter('document'), async (ctx) => {
+        try {
+          const messageContext = await this.parseMessage(ctx);
+          this.emitMessage(messageContext);
+        } catch (error) {
+          this.logger.error({ error }, 'Failed to parse Telegram document');
+        }
+      });
+
+      this.client.on(messageFilter('voice'), async (ctx) => {
+        try {
+          const messageContext = await this.parseMessage(ctx);
+          this.emitMessage(messageContext);
+        } catch (error) {
+          this.logger.error({ error }, 'Failed to parse Telegram voice');
+        }
+      });
+
+      // Register /webapp command to send webapp button
+      this.client.command('webapp', async (ctx) => {
+        try {
+          await ctx.reply('Open the TikTok Downloader WebApp:', {
+            reply_markup: {
+              keyboard: [[{ text: 'Open WebApp', web_app: { url: `${process.env.WEBAPP_URL || 'http://localhost:3001/webapp'}` } }]],
+              resize_keyboard: true,
+              one_time_keyboard: true
+            }
+          });
+        } catch (err) {
+          this.logger.error({ error: err }, 'Failed to send webapp button');
+        }
+      });
+
+      this.logger.info('Registering Telegram event handlers complete');
+
+      // Launch bot with graceful stop
+      this.logger.info('About to launch Telegraf bot');
+      
       try {
-        const messageContext = await this.parseMessage(ctx);
-        this.emitMessage(messageContext);
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to parse Telegram message');
+        // Clear potential webhook conflicts and drop pending updates to resolve 409 conflict
+        await this.client.telegram.deleteWebhook({ drop_pending_updates: true });
+        this.logger.info('Telegram webhook deleted successfully');
+      } catch (webhookError) {
+        this.logger.warn({ error: webhookError }, 'Failed to delete Telegram webhook');
       }
-    });
 
-    // Handle media messages
-    this.client.on(messageFilter('photo'), async (ctx) => {
-      try {
-        const messageContext = await this.parseMessage(ctx);
-        this.emitMessage(messageContext);
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to parse Telegram photo');
-      }
-    });
+      await this.client.launch({
+        polling: {
+          timeout: 30
+        }
+      });
+      this.logger.info('Telegram bot connected successfully!');
+      this.emit('ready');
 
-    this.client.on(messageFilter('video'), async (ctx) => {
-      try {
-        const messageContext = await this.parseMessage(ctx);
-        this.emitMessage(messageContext);
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to parse Telegram video');
-      }
-    });
-
-    this.client.on(messageFilter('document'), async (ctx) => {
-      try {
-        const messageContext = await this.parseMessage(ctx);
-        this.emitMessage(messageContext);
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to parse Telegram document');
-      }
-    });
-
-    this.client.on(messageFilter('voice'), async (ctx) => {
-      try {
-        const messageContext = await this.parseMessage(ctx);
-        this.emitMessage(messageContext);
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to parse Telegram voice');
-      }
-    });
-
-    // Launch bot with graceful stop
-    await this.client.launch();
-    
-    this.logger.info('Telegram bot connected successfully!');
-    this.emit('ready');
-
-    // Enable graceful stop
-    process.once('SIGINT', () => this.disconnect());
-    process.once('SIGTERM', () => this.disconnect());
+      // Enable graceful stop
+      process.once('SIGINT', () => this.disconnect());
+      process.once('SIGTERM', () => this.disconnect());
+    } catch (err) {
+      this.logger.error({ error: err }, 'TelegramAdapter.connect() failed');
+      throw err;
+    }
   }
 
   async parseMessage(ctx) {
@@ -83,7 +120,7 @@ export default class TelegramAdapter extends BaseAdapter {
     // Extract message text
     let text = msg.text || msg.caption || '';
 
-    // Parse command if message starts with prefix
+    // Parse command if message starts with prefix or slash
     let command = null;
     let args = [];
     
@@ -91,6 +128,16 @@ export default class TelegramAdapter extends BaseAdapter {
       const parts = text.slice(this.config.prefix.length).trim().split(/\s+/);
       command = parts[0].toLowerCase();
       args = parts.slice(1);
+      this.logger.info({ text, command, args }, '[TelegramAdapter] Parsed prefix command');
+    } else if (text.startsWith('/')) {
+      const parts = text.slice(1).trim().split(/\s+/);
+      command = parts[0].toLowerCase();
+      // Handle bot username in commands (e.g. /help@botname)
+      if (command.includes('@')) {
+        command = command.split('@')[0];
+      }
+      args = parts.slice(1);
+      this.logger.info({ text, command, args }, '[TelegramAdapter] Parsed slash command');
     }
 
     // Check if sender is owner

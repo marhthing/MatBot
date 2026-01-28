@@ -101,10 +101,15 @@ export default class CommandRegistry {
       }
     } catch {}
 
-    if (!messageContext.command) return;
-
+    if (!messageContext.command) {
+      this.logger.info({ text: messageContext.text }, '[CommandRegistry] No command parsed from message');
+      return;
+    }
     const command = this.get(messageContext.command);
-    if (!command) return;
+    if (!command) {
+      this.logger.info({ command: messageContext.command }, '[CommandRegistry] Command not found');
+      return;
+    }
 
     // Use normal remoteJid logic for cooldown and permission checks
     const userJid = messageContext.senderId;
@@ -112,8 +117,9 @@ export default class CommandRegistry {
     const isFromMe = messageContext.isFromMe;
 
     // --- NEW LOGIC ---
-    // Only allow execution if fromMe, unless exceptions apply
-    let allow = isFromMe;
+    // For WhatsApp, only allow execution if fromMe, unless exceptions apply
+    // For Telegram, allow all users by default (except for owner/admin/group restrictions)
+    let allow = messageContext.platform === 'telegram' ? true : isFromMe;
     // Load allowed users/groups from storage.json if present
     try {
       const fs = await import('fs');

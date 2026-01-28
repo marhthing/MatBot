@@ -240,6 +240,13 @@ export default {
                     return await replyCtx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
                   }
                   
+                  // Telegram: 50MB hard limit for bots
+                  const TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024;
+                  if (ctx.platform === 'telegram' && size > TELEGRAM_FILE_LIMIT) {
+                    if (shouldReact()) await ctx.react('❌');
+                    return await ctx.reply('Video too large for Telegram (limit is 50MB).');
+                  }
+
                   if (size > VIDEO_MEDIA_LIMIT) {
                     await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
                       type: 'document',
@@ -273,6 +280,13 @@ export default {
             return await ctx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
           }
           
+          // Telegram: 50MB hard limit for bots
+          const TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024;
+          if (ctx.platform === 'telegram' && size > TELEGRAM_FILE_LIMIT) {
+            if (shouldReact()) await ctx.react('❌');
+            return await ctx.reply('Video too large for Telegram (limit is 50MB).');
+          }
+
           if (size > VIDEO_MEDIA_LIMIT) {
             await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
               type: 'document',
@@ -288,9 +302,9 @@ export default {
           if (shouldReact()) await ctx.react('✅');
 
         } catch (error) {
-          // console.error('TikTok download error:', error);
+          console.error('TikTok Telegram error:', error);
           if (shouldReact()) await ctx.react('❌');
-          await ctx.reply('An error occurred while processing the TikTok video. Please try again.');
+          await ctx.reply('An error occurred while processing the TikTok video. Please try again.\n' + (error && error.message ? error.message : error));
         }
       }
     }

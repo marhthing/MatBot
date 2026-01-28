@@ -17,6 +17,7 @@ const requiredVars = {
   MAX_COMMAND_COOLDOWN: '3000',
   STICKER_PACK: 'MATDEV Bot',
   STICKER_AUTHOR: 'Bot',
+  WEBAPP_URL: 'http://localhost:3001/webapp',
   // Auto features defaults
   AUTO_TYPING: 'false',
   ALWAYS_ONLINE: 'false',
@@ -86,5 +87,8 @@ export default {
     storage: './storage',
     tmp: './tmp',
     plugins: './src/plugins'
-  }
+  },
+
+  // Webapp URL
+  webappUrl: process.env.WEBAPP_URL || 'http://localhost:3001/webapp'
 };

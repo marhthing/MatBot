@@ -31,6 +31,7 @@
     "fs-extra": "^11.3.3",
     "https-proxy-agent": "^7.0.6",
     "instagram-url-direct": "^2.0.7",
+    "node-fetch": "^3.3.2",
     "pino": "^8.21.0",
     "pino-pretty": "^11.3.0",
     "qrcode": "^1.5.4",
