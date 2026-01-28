@@ -458,15 +458,20 @@ export default class WhatsAppAdapter extends BaseAdapter {
     }
   }
 
-  // Send media (image, video, audio, document) to a chat
   async sendMedia(chatId, mediaBuffer, mediaType, options = {}) {
     // Support both string and object for mediaType
     let type = mediaType;
     let mimetype = options.mimetype;
-    if (typeof mediaType === 'object' && mediaType !== null) {
+    
+    if (mediaType && typeof mediaType === 'object') {
       type = mediaType.type || mediaType.mediaType || mediaType.kind;
       if (mediaType.mimetype) mimetype = mediaType.mimetype;
     }
+    
+    if (!type) {
+      throw new Error('Media type is required. Received: ' + JSON.stringify(mediaType));
+    }
+
     let message = {};
     if (type === 'image') {
       message.image = mediaBuffer;
@@ -485,7 +490,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       message.mimetype = mimetype || 'application/octet-stream';
       if (options.fileName) message.fileName = options.fileName;
     } else {
-      throw new Error('Unsupported media type: ' + JSON.stringify(mediaType));
+      throw new Error('Unsupported media type: ' + type);
     }
     if (options.quoted) message.quoted = { key: { id: options.quoted, remoteJid: chatId } };
     const sent = await this.client.sendMessage(chatId, message);
