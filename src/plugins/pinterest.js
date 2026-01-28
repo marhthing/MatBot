@@ -1,11 +1,11 @@
 import axios from 'axios';
 import fs from 'fs-extra';
 import path from 'path';
-import { shouldReact } from '../utils/pendingActions.js';
+import pendingActions, { shouldReact } from '../utils/pendingActions.js';
 
-const VIDEO_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2GB
-const VIDEO_MEDIA_LIMIT = 16 * 1024 * 1024; // 16MB
-const IMAGE_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
+const VIDEO_SIZE_LIMIT = 2 * 1024 * 1024 * 1024;
+const VIDEO_MEDIA_LIMIT = 16 * 1024 * 1024;
+const IMAGE_SIZE_LIMIT = 5 * 1024 * 1024;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -23,6 +23,27 @@ function generateUniqueFilename(prefix = 'pin', extension = 'jpg') {
   return `${prefix}_${timestamp}_${random}.${extension}`;
 }
 
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const unitIndex = Math.floor(Math.log(bytes) / Math.log(1024));
+  const size = bytes / Math.pow(1024, unitIndex);
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+async function getFileSize(url) {
+  try {
+    const head = await axios.head(url, { 
+      timeout: 10000,
+      headers: HEADERS
+    });
+    const size = head.headers['content-length'] ? parseInt(head.headers['content-length'], 10) : 0;
+    return size;
+  } catch (e) {
+    return 0;
+  }
+}
+
 async function validatePinterestUrl(url) {
   const pinterestUrlRegex = /(?:https?:\/\/)?(?:www\.)?(?:pinterest\.com\/pin\/|pin\.it\/)([a-zA-Z0-9_-]+)/;
   if (!url || typeof url !== 'string') return null;
@@ -30,7 +51,6 @@ async function validatePinterestUrl(url) {
   let cleanUrl = url.trim();
   
   try {
-    // Expand short links
     if (cleanUrl.includes('pin.it')) {
       if (!cleanUrl.startsWith('http')) {
         cleanUrl = 'https://' + cleanUrl;
@@ -56,9 +76,7 @@ async function validatePinterestUrl(url) {
         pinId: match[1]
       };
     }
-  } catch (error) {
-    // console.error('URL validation error:', error.message);
-  }
+  } catch (error) {}
   
   return null;
 }
@@ -83,75 +101,101 @@ function extractAllJsonData(html) {
   return jsonBlocks;
 }
 
-function findVideoUrl(obj, depth = 0) {
-  if (depth > 10) return null;
-  if (!obj || typeof obj !== 'object') return null;
+function findVideoQualities(obj, depth = 0) {
+  if (depth > 10) return [];
+  if (!obj || typeof obj !== 'object') return [];
+  
+  const qualities = [];
   
   if (obj.video_list && typeof obj.video_list === 'object') {
-    const qualities = ['V_720P', 'V_HLSV4', 'V_HLSV3_MOBILE', 'V_EXP7', 'V_EXP6', 'V_EXP5'];
+    const qualityOrder = ['V_720P', 'V_480P', 'V_360P', 'V_HLSV4', 'V_HLSV3_MOBILE', 'V_EXP7', 'V_EXP6', 'V_EXP5'];
     
-    for (const quality of qualities) {
+    for (const quality of qualityOrder) {
       if (obj.video_list[quality]?.url) {
-        return obj.video_list[quality].url;
+        let label = quality.replace('V_', '').replace('P', 'p');
+        if (label.includes('HLS')) label = 'HLS Stream';
+        if (label.includes('EXP')) label = 'Standard';
+        
+        qualities.push({
+          quality: label,
+          url: obj.video_list[quality].url,
+          width: obj.video_list[quality].width || 0,
+          height: obj.video_list[quality].height || 0
+        });
       }
     }
     
-    for (const key in obj.video_list) {
-      if (obj.video_list[key]?.url) {
-        return obj.video_list[key].url;
+    if (qualities.length === 0) {
+      for (const key in obj.video_list) {
+        if (obj.video_list[key]?.url) {
+          qualities.push({
+            quality: key.replace('V_', '').replace('P', 'p'),
+            url: obj.video_list[key].url,
+            width: obj.video_list[key].width || 0,
+            height: obj.video_list[key].height || 0
+          });
+        }
       }
     }
   }
   
-  if (obj.url && typeof obj.url === 'string' && obj.url.includes('.mp4')) {
-    return obj.url;
-  }
+  if (qualities.length > 0) return qualities;
   
   for (const key in obj) {
     if (key === 'videos' || key === 'video_list' || key === 'video') {
-      const result = findVideoUrl(obj[key], depth + 1);
-      if (result) return result;
+      const result = findVideoQualities(obj[key], depth + 1);
+      if (result.length > 0) return result;
     }
   }
   
   for (const key in obj) {
     if (typeof obj[key] === 'object') {
-      const result = findVideoUrl(obj[key], depth + 1);
-      if (result) return result;
+      const result = findVideoQualities(obj[key], depth + 1);
+      if (result.length > 0) return result;
     }
   }
   
-  return null;
+  return [];
 }
 
-function findImageUrl(obj, depth = 0) {
-  if (depth > 10) return null;
-  if (!obj || typeof obj !== 'object') return null;
+function findImageQualities(obj, depth = 0) {
+  if (depth > 10) return [];
+  if (!obj || typeof obj !== 'object') return [];
   
-  if (obj.images?.orig?.url) {
-    return obj.images.orig.url;
+  const qualities = [];
+  
+  if (obj.images && typeof obj.images === 'object') {
+    const qualityOrder = ['orig', '1200x', '736x', '564x', '474x', '236x', '170x'];
+    
+    for (const quality of qualityOrder) {
+      if (obj.images[quality]?.url) {
+        qualities.push({
+          quality: quality === 'orig' ? 'Original' : quality,
+          url: obj.images[quality].url,
+          width: obj.images[quality].width || 0,
+          height: obj.images[quality].height || 0
+        });
+      }
+    }
   }
   
-  if (obj.url && typeof obj.url === 'string' && 
-      (obj.url.includes('pinimg.com') || obj.url.match(/\.(jpg|jpeg|png|webp)/i))) {
-    return obj.url;
-  }
+  if (qualities.length > 0) return qualities;
   
   for (const key in obj) {
     if (key === 'images' || key === 'image') {
-      const result = findImageUrl(obj[key], depth + 1);
-      if (result) return result;
+      const result = findImageQualities(obj[key], depth + 1);
+      if (result.length > 0) return result;
     }
   }
   
   for (const key in obj) {
     if (typeof obj[key] === 'object') {
-      const result = findImageUrl(obj[key], depth + 1);
-      if (result) return result;
+      const result = findImageQualities(obj[key], depth + 1);
+      if (result.length > 0) return result;
     }
   }
   
-  return null;
+  return [];
 }
 
 function extractPinterestUrlFromObject(obj) {
@@ -180,22 +224,22 @@ async function getPinterestMediaInfo(url) {
     const html = response.data;
     const jsonBlocks = extractAllJsonData(html);
     
-    let videoUrl = null;
-    let imageUrl = null;
+    let videoQualities = [];
+    let imageQualities = [];
     
     for (const jsonData of jsonBlocks) {
-      videoUrl = findVideoUrl(jsonData);
-      if (videoUrl) break;
+      videoQualities = findVideoQualities(jsonData);
+      if (videoQualities.length > 0) break;
     }
     
-    if (!videoUrl) {
+    if (videoQualities.length === 0) {
       for (const jsonData of jsonBlocks) {
-        imageUrl = findImageUrl(jsonData);
-        if (imageUrl) break;
+        imageQualities = findImageQualities(jsonData);
+        if (imageQualities.length > 0) break;
       }
     }
     
-    if (!videoUrl && !imageUrl) {
+    if (videoQualities.length === 0 && imageQualities.length === 0) {
       const videoPatterns = [
         /"url":"(https:\/\/[^"]*\.mp4[^"]*)"/,
         /"V_720P":\{"url":"([^"]+)"/,
@@ -205,12 +249,13 @@ async function getPinterestMediaInfo(url) {
       for (const pattern of videoPatterns) {
         const match = html.match(pattern);
         if (match && match[1]) {
-          videoUrl = match[1].replace(/\\u002F/g, '/').replace(/\\/g, '');
+          const videoUrl = match[1].replace(/\\u002F/g, '/').replace(/\\/g, '');
+          videoQualities.push({ quality: 'Standard', url: videoUrl, width: 0, height: 0 });
           break;
         }
       }
       
-      if (!videoUrl) {
+      if (videoQualities.length === 0) {
         const imagePatterns = [
           /"url":"(https:\/\/i\.pinimg\.com\/originals\/[^"]+)"/,
           /"orig":\{"url":"([^"]+)"/
@@ -219,23 +264,22 @@ async function getPinterestMediaInfo(url) {
         for (const pattern of imagePatterns) {
           const match = html.match(pattern);
           if (match && match[1]) {
-            imageUrl = match[1].replace(/\\u002F/g, '/').replace(/\\/g, '');
+            const imageUrl = match[1].replace(/\\u002F/g, '/').replace(/\\/g, '');
+            imageQualities.push({ quality: 'Original', url: imageUrl, width: 0, height: 0 });
             break;
           }
         }
       }
     }
 
-    const finalUrl = videoUrl || imageUrl;
-    const isVideo = !!videoUrl;
-    
-    if (!finalUrl) {
+    if (videoQualities.length === 0 && imageQualities.length === 0) {
       throw new Error('Could not extract media URL from Pinterest page');
     }
 
     return {
-      url: finalUrl,
-      isVideo: isVideo
+      isVideo: videoQualities.length > 0,
+      videoQualities,
+      imageQualities
     };
 
   } catch (error) {
@@ -243,59 +287,25 @@ async function getPinterestMediaInfo(url) {
   }
 }
 
-async function downloadMediaFromUrl(mediaUrl, filename, tempDir) {
-  await fs.ensureDir(tempDir);
-  const tempFile = path.join(tempDir, filename);
-  
-  try {
-    const response = await axios.get(mediaUrl, {
-      responseType: 'stream',
-      timeout: 90000,
-      headers: HEADERS
-    });
-
-    await new Promise((resolve, reject) => {
-      const writeStream = fs.createWriteStream(tempFile);
-      response.data.pipe(writeStream);
-      
-      response.data.on('error', reject);
-      writeStream.on('error', reject);
-      writeStream.on('finish', resolve);
-    });
-
-    const stats = await fs.stat(tempFile);
-    
-    return {
-      path: tempFile,
-      size: stats.size
-    };
-
-  } catch (error) {
-    await fs.unlink(tempFile).catch(() => {});
-    throw error;
-  }
-}
-
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 B';
-  
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const unitIndex = Math.floor(Math.log(bytes) / Math.log(1024));
-  const size = bytes / Math.pow(1024, unitIndex);
-  
-  return `${size.toFixed(1)} ${units[unitIndex]}`;
+async function downloadMediaToBuffer(mediaUrl) {
+  const response = await axios.get(mediaUrl, {
+    responseType: 'arraybuffer',
+    timeout: 120000,
+    headers: HEADERS
+  });
+  return Buffer.from(response.data);
 }
 
 export default {
   name: 'pinterest',
-  description: 'Pinterest media downloader',
-  version: '1.0.0',
+  description: 'Pinterest media downloader with quality selection',
+  version: '2.0.0',
   author: 'MATDEV',
   commands: [
     {
       name: 'pin',
       aliases: ['pinterest'],
-      description: 'Download Pinterest media (image/video)',
+      description: 'Download Pinterest media (image/video) with quality selection',
       usage: '.pin <url>',
       category: 'download',
       ownerOnly: false,
@@ -306,7 +316,6 @@ export default {
         try {
           let url = ctx.args.join(' ').trim();
           
-          // Check quoted message
           if (!url) {
             const quotedMessage = ctx.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             if (quotedMessage) {
@@ -315,70 +324,203 @@ export default {
           }
           
           if (!url) {
-            return await ctx.reply('❌ Please provide a Pinterest URL\n\nUsage: .pin <url>');
+            return await ctx.reply('Please provide a Pinterest URL\n\nUsage: .pin <url>');
           }
 
           const validatedUrl = await validatePinterestUrl(url);
           if (!validatedUrl) {
-            return await ctx.reply('❌ Please provide a valid Pinterest URL (pin.it or pinterest.com/pin/)');
+            return await ctx.reply('Please provide a valid Pinterest URL (pin.it or pinterest.com/pin/)');
           }
-          
-          const tempDir = path.join(process.cwd(), 'tmp');
-          await fs.ensureDir(tempDir);
 
           if (shouldReact()) await ctx.react('⏳');
 
           try {
             const mediaInfo = await getPinterestMediaInfo(validatedUrl.url);
             
-            const extension = mediaInfo.isVideo ? 'mp4' : 'jpg';
-            const filename = generateUniqueFilename('pin', extension);
-            
-            const result = await downloadMediaFromUrl(mediaInfo.url, filename, tempDir);
-            
-            // Check size limits
-            if (mediaInfo.isVideo && result.size > VIDEO_SIZE_LIMIT) {
-              await fs.unlink(result.path).catch(() => {});
-              if (shouldReact()) await ctx.react('❌');
-              return await ctx.reply(`❌ Video too large (${formatFileSize(result.size)}). WhatsApp limit is 2GB.`);
-            }
-            
-            if (!mediaInfo.isVideo && result.size > IMAGE_SIZE_LIMIT) {
-              await fs.unlink(result.path).catch(() => {});
-              if (shouldReact()) await ctx.react('❌');
-              return await ctx.reply(`❌ Image too large (${formatFileSize(result.size)}). Limit is 5MB.`);
-            }
-
-            const mediaBuffer = await fs.readFile(result.path);
-
             if (mediaInfo.isVideo) {
-              if (result.size > VIDEO_MEDIA_LIMIT) {
-                await ctx._adapter.sendMedia(ctx.chatId, mediaBuffer, {
-                  type: 'document',
-                  mimetype: 'video/mp4',
-                  caption: filename
-                });
-              } else {
-                await ctx._adapter.sendMedia(ctx.chatId, mediaBuffer, {
-                  type: 'video',
-                  mimetype: 'video/mp4'
-                });
+              const videoQualities = mediaInfo.videoQualities.filter(q => !q.url.includes('.m3u8'));
+              
+              if (videoQualities.length === 0) {
+                if (shouldReact()) await ctx.react('❌');
+                return await ctx.reply('No downloadable video found (only streaming formats available).');
               }
-            } else {
-              await ctx._adapter.sendMedia(ctx.chatId, mediaBuffer, {
-                type: 'image',
-                mimetype: 'image/jpeg'
+              
+              if (videoQualities.length === 1) {
+                const selected = videoQualities[0];
+                const videoBuffer = await downloadMediaToBuffer(selected.url);
+                const size = videoBuffer.length;
+                
+                if (size > VIDEO_SIZE_LIMIT) {
+                  if (shouldReact()) await ctx.react('❌');
+                  return await ctx.reply(`Video too large (${formatFileSize(size)}). Limit is 2GB.`);
+                }
+                
+                if (size > VIDEO_MEDIA_LIMIT) {
+                  await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                    type: 'document',
+                    mimetype: 'video/mp4',
+                    caption: 'Pinterest video'
+                  });
+                } else {
+                  await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                    type: 'video',
+                    mimetype: 'video/mp4'
+                  });
+                }
+                
+                if (shouldReact()) await ctx.react('✅');
+                return;
+              }
+              
+              const qualities = [];
+              let idx = 1;
+              
+              for (const q of videoQualities) {
+                const size = await getFileSize(q.url);
+                let label = q.quality;
+                if (q.height > 0) label = `${q.height}p`;
+                
+                qualities.push({
+                  label: `${idx} - ${label}${size ? ` (${formatFileSize(size)})` : ''}`,
+                  url: q.url
+                });
+                idx++;
+              }
+              
+              let prompt = '*Pinterest Video Found!*\n\nSelect quality by replying with the number:\n';
+              prompt += qualities.map(q => q.label).join('\n');
+              
+              const sentMsg = await ctx.reply(prompt);
+              
+              pendingActions.set(ctx.chatId, sentMsg.key.id, {
+                type: 'pinterest_quality',
+                userId: ctx.senderId,
+                data: { qualities, isVideo: true },
+                match: (text) => {
+                  if (typeof text !== 'string') return false;
+                  const n = parseInt(text.trim(), 10);
+                  return n >= 1 && n <= qualities.length;
+                },
+                handler: async (replyCtx, pending) => {
+                  const choice = parseInt(replyCtx.text.trim(), 10);
+                  const selected = pending.data.qualities[choice - 1];
+                  
+                  if (shouldReact()) await replyCtx.react('⏳');
+                  
+                  try {
+                    const videoBuffer = await downloadMediaToBuffer(selected.url);
+                    const size = videoBuffer.length;
+                    
+                    if (size > VIDEO_SIZE_LIMIT) {
+                      if (shouldReact()) await replyCtx.react('❌');
+                      return await replyCtx.reply(`Video too large (${formatFileSize(size)}). Limit is 2GB.`);
+                    }
+                    
+                    if (size > VIDEO_MEDIA_LIMIT) {
+                      await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                        type: 'document',
+                        mimetype: 'video/mp4',
+                        caption: 'Pinterest video'
+                      });
+                    } else {
+                      await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                        type: 'video',
+                        mimetype: 'video/mp4'
+                      });
+                    }
+                    
+                    if (shouldReact()) await replyCtx.react('✅');
+                  } catch (error) {
+                    if (shouldReact()) await replyCtx.react('❌');
+                    await replyCtx.reply('Failed to download selected quality.');
+                  }
+                },
+                timeout: 10 * 60 * 1000
               });
+              
+              if (shouldReact()) await ctx.react('');
+              
+            } else {
+              const imageQualities = mediaInfo.imageQualities;
+              
+              if (imageQualities.length === 0) {
+                if (shouldReact()) await ctx.react('❌');
+                return await ctx.reply('No downloadable image found.');
+              }
+              
+              if (imageQualities.length === 1) {
+                const selected = imageQualities[0];
+                const imageBuffer = await downloadMediaToBuffer(selected.url);
+                
+                await ctx._adapter.sendMedia(ctx.chatId, imageBuffer, {
+                  type: 'image',
+                  mimetype: 'image/jpeg'
+                });
+                
+                if (shouldReact()) await ctx.react('✅');
+                return;
+              }
+              
+              const qualities = [];
+              let idx = 1;
+              
+              for (const q of imageQualities.slice(0, 5)) {
+                const size = await getFileSize(q.url);
+                let label = q.quality;
+                if (q.width > 0 && q.height > 0) label = `${q.width}x${q.height}`;
+                else if (q.width > 0) label = `${q.width}px wide`;
+                
+                qualities.push({
+                  label: `${idx} - ${label}${size ? ` (${formatFileSize(size)})` : ''}`,
+                  url: q.url
+                });
+                idx++;
+              }
+              
+              let prompt = '*Pinterest Image Found!*\n\nSelect quality by replying with the number:\n';
+              prompt += qualities.map(q => q.label).join('\n');
+              
+              const sentMsg = await ctx.reply(prompt);
+              
+              pendingActions.set(ctx.chatId, sentMsg.key.id, {
+                type: 'pinterest_quality',
+                userId: ctx.senderId,
+                data: { qualities, isVideo: false },
+                match: (text) => {
+                  if (typeof text !== 'string') return false;
+                  const n = parseInt(text.trim(), 10);
+                  return n >= 1 && n <= qualities.length;
+                },
+                handler: async (replyCtx, pending) => {
+                  const choice = parseInt(replyCtx.text.trim(), 10);
+                  const selected = pending.data.qualities[choice - 1];
+                  
+                  if (shouldReact()) await replyCtx.react('⏳');
+                  
+                  try {
+                    const imageBuffer = await downloadMediaToBuffer(selected.url);
+                    
+                    await replyCtx._adapter.sendMedia(replyCtx.chatId, imageBuffer, {
+                      type: 'image',
+                      mimetype: 'image/jpeg'
+                    });
+                    
+                    if (shouldReact()) await replyCtx.react('✅');
+                  } catch (error) {
+                    if (shouldReact()) await replyCtx.react('❌');
+                    await replyCtx.reply('Failed to download selected quality.');
+                  }
+                },
+                timeout: 10 * 60 * 1000
+              });
+              
+              if (shouldReact()) await ctx.react('');
             }
-
-            if (shouldReact()) await ctx.react('✅');
-            await fs.unlink(result.path).catch(() => {});
 
           } catch (error) {
-            // console.error('Pinterest download failed:', error);
             if (shouldReact()) await ctx.react('❌');
             
-            let errorMsg = '❌ Download failed. ';
+            let errorMsg = 'Download failed. ';
             if (error.message?.includes('private')) {
               errorMsg += 'This pin may be private.';
             } else if (error.message?.includes('not found')) {
@@ -393,9 +535,8 @@ export default {
           }
 
         } catch (error) {
-          // console.error('Pinterest command error:', error);
           if (shouldReact()) await ctx.react('❌');
-          await ctx.reply('❌ An error occurred while processing the Pinterest media');
+          await ctx.reply('An error occurred while processing the Pinterest media');
         }
       }
     }

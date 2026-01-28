@@ -81,6 +81,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
     const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
+    this._alwaysOnline = alwaysOnline;
     this.client = makeWASocket({
       auth: state,
       version,
@@ -88,7 +89,6 @@ export default class WhatsAppAdapter extends BaseAdapter {
       logger: this.baileysLogger,
       generateHighQualityLinkPreview: true,
       markOnlineOnConnect: alwaysOnline,
-      shouldAlwaysSendPresence: alwaysOnline,
       getMessage: async (key) => {
         const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
         if (msg?.message) return msg;
@@ -104,6 +104,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
     const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
+    this._alwaysOnline = alwaysOnline;
     this.client = makeWASocket({
       auth: state,
       version,
@@ -112,7 +113,6 @@ export default class WhatsAppAdapter extends BaseAdapter {
       printQRInTerminal: false,
       generateHighQualityLinkPreview: true,
       markOnlineOnConnect: alwaysOnline,
-      shouldAlwaysSendPresence: alwaysOnline,
       getMessage: async (key) => {
         const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
         if (msg?.message) return msg;
@@ -166,6 +166,20 @@ export default class WhatsAppAdapter extends BaseAdapter {
             fs.writeFileSync(envPath, envContent, 'utf-8');
           }
         }
+        
+        // Explicitly set presence based on ALWAYS_ONLINE setting
+        const alwaysOnline = process.env.ALWAYS_ONLINE === 'true';
+        this._alwaysOnline = alwaysOnline;
+        try {
+          if (alwaysOnline) {
+            await this.client.sendPresenceUpdate('available');
+          } else {
+            await this.client.sendPresenceUpdate('unavailable');
+          }
+        } catch (e) {
+          // Ignore presence update errors
+        }
+        
         this.emit('ready');
       }
 
@@ -496,5 +510,18 @@ export default class WhatsAppAdapter extends BaseAdapter {
     const sent = await this.client.sendMessage(chatId, message);
     if (sent?.key?.id) memoryStore.saveMessage('whatsapp', chatId, sent.key.id, sent);
     return sent;
+  }
+
+  async setAlwaysOnline(value) {
+    this._alwaysOnline = value;
+    try {
+      if (value) {
+        await this.client.sendPresenceUpdate('available');
+      } else {
+        await this.client.sendPresenceUpdate('unavailable');
+      }
+    } catch (e) {
+      // Ignore presence update errors
+    }
   }
 }

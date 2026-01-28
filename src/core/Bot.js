@@ -7,6 +7,7 @@ import RateLimiter from '../utils/rateLimiter.js';
 import MediaHandler from '../utils/mediaHandler.js';
 import WhatsAppAdapter from '../adapters/WhatsAppAdapter.js';
 import TelegramAdapter from '../adapters/TelegramAdapter.js';
+import { startKeepAlive, stopKeepAlive } from '../utils/keepAlive.js';
 import fs from 'fs';
 import path from 'path';
 import pendingActions from '../utils/pendingActions.js';
@@ -54,6 +55,8 @@ export default class Bot extends EventEmitter {
 
   async start() {
     this.logger.info(`Starting ${this.config.botName}...`);
+    
+    startKeepAlive();
 
     if (this.config.platforms.whatsapp) {
       await this.initializeWhatsApp();
@@ -208,6 +211,9 @@ export default class Bot extends EventEmitter {
     if (this._stopping) return;
     this._stopping = true;
     this.logger.info('Stopping bot...');
+    
+    stopKeepAlive();
+    
     for (const [platform, adapter] of this.adapters) {
       this.logger.info(`Disconnecting ${platform}...`);
       try {

@@ -1,9 +1,9 @@
-import fbDownloader from '@mrnima/facebook-downloader';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import youtubedl from 'youtube-dl-exec';
+import fs from 'fs-extra';
+import path from 'path';
 import pendingActions, { shouldReact } from '../utils/pendingActions.js';
-
-const { facebook } = fbDownloader;
 
 const VIDEO_SIZE_LIMIT = 100 * 1024 * 1024;
 const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
@@ -15,6 +15,12 @@ const USER_AGENTS = [
 ];
 
 const getRandomUserAgent = () => USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
+function generateUniqueFilename(prefix = 'fb', extension = 'mp4') {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+  return `${prefix}_${timestamp}_${random}.${extension}`;
+}
 
 function isValidFacebookUrl(url) {
   const fbPatterns = [
@@ -48,173 +54,109 @@ function formatFileSize(bytes) {
   return `${size.toFixed(1)} ${units[unitIndex]}`;
 }
 
-async function getFileSize(url) {
+async function getVideoFormatsWithYtDlp(url) {
   try {
-    const head = await axios.head(url, { 
-      timeout: 10000,
-      headers: { 'User-Agent': getRandomUserAgent() }
+    const info = await youtubedl(url, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCheckCertificates: true,
+      retries: 3,
+      addHeader: [
+        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      ]
     });
-    const size = head.headers['content-length'] ? parseInt(head.headers['content-length'], 10) : 0;
-    return size;
-  } catch (e) {
-    return 0;
-  }
-}
-
-async function downloadMediaToBuffer(mediaUrl) {
-  const response = await axios.get(mediaUrl, {
-    responseType: 'arraybuffer',
-    timeout: 120000,
-    maxContentLength: 100 * 1024 * 1024,
-    headers: {
-      'User-Agent': getRandomUserAgent(),
-      'Referer': 'https://www.facebook.com/'
-    }
-  });
-  return Buffer.from(response.data);
-}
-
-async function fetchWithMrnima(url) {
-  try {
-    const result = await facebook(url);
     
-    if (!result || !result.status || !result.result) {
-      return null;
-    }
+    if (!info) return null;
     
-    const data = result.result;
-    const links = [];
+    const formats = [];
+    const seenQualities = new Set();
     
-    if (data.links) {
-      if (data.links.HD) {
-        links.push({ quality: 'HD', url: data.links.HD, format: 'mp4' });
-      }
-      if (data.links.SD) {
-        links.push({ quality: 'SD', url: data.links.SD, format: 'mp4' });
+    if (info.formats) {
+      for (const format of info.formats) {
+        if (format.vcodec && format.vcodec !== 'none') {
+          const height = format.height || 0;
+          let quality = 'SD';
+          
+          if (height >= 1080) quality = '1080p HD';
+          else if (height >= 720) quality = '720p HD';
+          else if (height >= 480) quality = '480p';
+          else if (height >= 360) quality = '360p';
+          else quality = 'SD';
+          
+          if (!seenQualities.has(quality)) {
+            seenQualities.add(quality);
+            const size = format.filesize || format.filesize_approx || 0;
+            formats.push({
+              quality,
+              height,
+              format_id: format.format_id,
+              size,
+              formatString: height > 0 ? `best[height<=${height}][ext=mp4]/best[ext=mp4]/best` : 'best[ext=mp4]/best'
+            });
+          }
+        }
       }
     }
     
-    if (links.length === 0) return null;
+    formats.sort((a, b) => b.height - a.height);
     
     return {
-      title: 'Facebook Video',
-      thumbnail: data.thumbnail || '',
-      duration: data.duration || '',
-      links,
-      source: '@mrnima/facebook-downloader'
+      formats: formats.slice(0, 5),
+      title: info.title || 'Facebook Video',
+      duration: info.duration ? `${Math.floor(info.duration / 60)}:${String(Math.floor(info.duration % 60)).padStart(2, '0')}` : '',
+      source: 'yt-dlp'
     };
   } catch (error) {
-    // console.log('[FB] @mrnima/facebook-downloader failed:', error.message);
     return null;
   }
 }
 
-async function fetchFromFDownloader(url, timeout = 60000) {
+async function downloadVideoWithYtDlp(url, formatString, tempDir) {
+  const uniqueFilename = generateUniqueFilename('fb_video', 'mp4');
+  const outputPath = path.join(tempDir, uniqueFilename);
+  
   try {
-    const endpoint = 'https://v3.fdownloader.net/api/ajaxSearch?lang=en';
-    
-    const response = await axios.post(
-      endpoint,
-      new URLSearchParams({
-        k_exp: '',
-        k_token: '',
-        q: url,
-        lang: 'en',
-        web: 'fdownloader.net',
-        v: 'v2',
-        w: ''
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'User-Agent': getRandomUserAgent(),
-          'Accept': '*/*',
-          'Origin': 'https://fdownloader.net',
-          'Referer': 'https://fdownloader.net/'
-        },
-        timeout
-      }
-    );
+    await youtubedl(url, {
+      output: outputPath,
+      format: formatString || 'best[ext=mp4]/best',
+      noWarnings: true,
+      noCheckCertificates: true,
+      retries: 3,
+      socketTimeout: 30,
+      addHeader: [
+        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      ]
+    });
 
-    if (!response.data?.data) {
-      return null;
+    if (await fs.pathExists(outputPath)) {
+      const stats = await fs.stat(outputPath);
+      
+      if (stats.size < 1000) {
+        await fs.unlink(outputPath).catch(() => {});
+        throw new Error('Downloaded file is too small, likely invalid');
+      }
+      
+      return {
+        path: outputPath,
+        size: stats.size,
+        isLarge: stats.size > VIDEO_MEDIA_LIMIT
+      };
     }
+    
+    throw new Error('Download failed: file not created');
 
-    const $ = cheerio.load(response.data.data);
-    const links = [];
-
-    $('a.btn').each((_, el) => {
-      const href = $(el).attr('href');
-      const title = $(el).attr('title') || $(el).text().trim();
-      
-      if (href && href.startsWith('http')) {
-        let quality = 'SD';
-        if (title.toLowerCase().includes('hd') || title.toLowerCase().includes('720')) {
-          quality = 'HD';
-        } else if (title.toLowerCase().includes('sd') || title.toLowerCase().includes('360')) {
-          quality = 'SD';
-        } else if (title.toLowerCase().includes('audio')) {
-          quality = 'Audio';
-        }
-        
-        links.push({ quality, url: href, format: quality === 'Audio' ? 'mp3' : 'mp4' });
-      }
-    });
-
-    if (links.length === 0) return null;
-
-    const title = $('.lib-title').text().trim() || 'Facebook Video';
-    const thumbnail = $('.lib-thumbnail img').attr('src') || '';
-    const duration = $('.lib-time').text().trim() || '';
-
-    return { title, thumbnail, duration, links, source: 'fdownloader.net' };
   } catch (error) {
-    // console.log('[FB] fdownloader.net failed:', error.message);
-    return null;
-  }
-}
-
-async function fetchFromGetFvid(url, timeout = 60000) {
-  try {
-    const response = await axios.get(`https://www.getfvid.com/downloader`, {
-      params: { url },
-      headers: {
-        'User-Agent': getRandomUserAgent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Referer': 'https://www.getfvid.com/'
-      },
-      timeout
-    });
-
-    const $ = cheerio.load(response.data);
-    const links = [];
-
-    $('a.btn-download').each((_, el) => {
-      const href = $(el).attr('href');
-      const text = $(el).text().trim().toLowerCase();
-      
-      if (href && href.includes('fbcdn')) {
-        let quality = 'SD';
-        if (text.includes('hd')) quality = 'HD';
-        else if (text.includes('sd')) quality = 'SD';
-        
-        links.push({ quality, url: href, format: 'mp4' });
-      }
-    });
-
-    if (links.length === 0) return null;
-
-    return { title: 'Facebook Video', links, source: 'getfvid.com' };
-  } catch (error) {
-    // console.log('[FB] getfvid.com failed:', error.message);
-    return null;
+    if (await fs.pathExists(outputPath)) {
+      await fs.unlink(outputPath).catch(() => {});
+    }
+    throw error;
   }
 }
 
 export default {
   name: 'facebook',
   description: 'Facebook video downloader with quality selection',
-  version: '2.1.0',
+  version: '3.0.0',
   author: 'MATDEV',
   commands: [
     {
@@ -246,66 +188,25 @@ export default {
             return await ctx.reply('Invalid Facebook URL. Please provide a valid Facebook video/reel link.');
           }
 
+          const tempDir = path.join(process.cwd(), 'tmp');
+          await fs.ensureDir(tempDir);
+
           if (shouldReact()) await ctx.react('⏳');
 
-          let videoData = null;
-          const methods = [
-            { name: '@mrnima/facebook-downloader', fn: () => fetchWithMrnima(url) },
-            { name: 'fdownloader.net', fn: () => fetchFromFDownloader(url) },
-            { name: 'getfvid.com', fn: () => fetchFromGetFvid(url) }
-          ];
+          try {
+            const videoData = await getVideoFormatsWithYtDlp(url);
 
-          for (const method of methods) {
-            try {
-              // console.log(`[FB] Trying ${method.name}...`);
-              const result = await method.fn();
+            if (!videoData || !videoData.formats || videoData.formats.length === 0) {
+              const result = await downloadVideoWithYtDlp(url, 'best[ext=mp4]/best', tempDir);
+              const videoBuffer = await fs.readFile(result.path);
               
-              if (result && result.links && result.links.length > 0) {
-                // console.log(`[FB] ${method.name} succeeded with ${result.links.length} links`);
-                videoData = result;
-                break;
-              }
-            } catch (error) {
-              // console.log(`[FB] ${method.name} failed:`, error.message);
-            }
-          }
-
-          if (!videoData || !videoData.links || videoData.links.length === 0) {
-            if (shouldReact()) await ctx.react('❌');
-            return await ctx.reply('Could not extract video. The video might be private, unavailable, or the link format is not supported.');
-          }
-
-          const qualities = [];
-          let idx = 1;
-
-          for (const link of videoData.links) {
-            const size = await getFileSize(link.url);
-            qualities.push({
-              label: `${idx} - ${link.quality}${size ? ` (${formatFileSize(size)})` : ''}`,
-              url: link.url,
-              quality: link.quality,
-              format: link.format
-            });
-            idx++;
-          }
-
-          if (qualities.length === 1) {
-            const quality = qualities[0];
-            try {
-              const videoBuffer = await downloadMediaToBuffer(quality.url);
-              const size = videoBuffer.length;
-              
-              if (size > VIDEO_SIZE_LIMIT) {
+              if (result.size > VIDEO_SIZE_LIMIT) {
+                await fs.unlink(result.path).catch(() => {});
                 if (shouldReact()) await ctx.react('❌');
-                return await ctx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
+                return await ctx.reply(`Video too large (${formatFileSize(result.size)}). Limit is 100MB.`);
               }
               
-              if (quality.format === 'mp3') {
-                await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
-                  type: 'audio',
-                  mimetype: 'audio/mpeg'
-                });
-              } else if (size > VIDEO_MEDIA_LIMIT) {
+              if (result.isLarge) {
                 await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
                   type: 'document',
                   mimetype: 'video/mp4',
@@ -319,78 +220,108 @@ export default {
               }
               
               if (shouldReact()) await ctx.react('✅');
-            } catch (error) {
-              // console.error('[FB] Download failed:', error);
-              if (shouldReact()) await ctx.react('❌');
-              await ctx.reply('Failed to download video. Please try again.');
+              await fs.unlink(result.path).catch(() => {});
+              return;
             }
-            return;
+
+            const qualities = videoData.formats.map((f, idx) => ({
+              label: `${idx + 1} - ${f.quality}${f.size ? ` (${formatFileSize(f.size)})` : ''}`,
+              formatString: f.formatString,
+              quality: f.quality
+            }));
+
+            if (qualities.length === 1) {
+              const result = await downloadVideoWithYtDlp(url, qualities[0].formatString, tempDir);
+              const videoBuffer = await fs.readFile(result.path);
+              
+              if (result.size > VIDEO_SIZE_LIMIT) {
+                await fs.unlink(result.path).catch(() => {});
+                if (shouldReact()) await ctx.react('❌');
+                return await ctx.reply(`Video too large (${formatFileSize(result.size)}). Limit is 100MB.`);
+              }
+              
+              if (result.isLarge) {
+                await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                  type: 'document',
+                  mimetype: 'video/mp4',
+                  caption: 'Facebook video'
+                });
+              } else {
+                await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                  type: 'video',
+                  mimetype: 'video/mp4'
+                });
+              }
+              
+              if (shouldReact()) await ctx.react('✅');
+              await fs.unlink(result.path).catch(() => {});
+              return;
+            }
+
+            let prompt = `*Facebook Video Found!*\n\n`;
+            prompt += `*Title:* ${videoData.title}\n`;
+            if (videoData.duration) prompt += `*Duration:* ${videoData.duration}\n`;
+            prompt += `\n*Select quality by replying with the number:*\n`;
+            prompt += qualities.map(q => q.label).join('\n');
+            
+            const sentMsg = await ctx.reply(prompt);
+            
+            pendingActions.set(ctx.chatId, sentMsg.key.id, {
+              type: 'facebook_quality',
+              userId: ctx.senderId,
+              data: { qualities, url, tempDir },
+              match: (text) => {
+                if (typeof text !== 'string') return false;
+                const n = parseInt(text.trim(), 10);
+                return n >= 1 && n <= qualities.length;
+              },
+              handler: async (replyCtx, pending) => {
+                const choice = parseInt(replyCtx.text.trim(), 10);
+                const selected = pending.data.qualities[choice - 1];
+                
+                if (shouldReact()) await replyCtx.react('⏳');
+                
+                try {
+                  const result = await downloadVideoWithYtDlp(pending.data.url, selected.formatString, pending.data.tempDir);
+                  const videoBuffer = await fs.readFile(result.path);
+                  
+                  if (result.size > VIDEO_SIZE_LIMIT) {
+                    await fs.unlink(result.path).catch(() => {});
+                    if (shouldReact()) await replyCtx.react('❌');
+                    return await replyCtx.reply(`Video too large (${formatFileSize(result.size)}). Limit is 100MB.`);
+                  }
+                  
+                  if (result.isLarge) {
+                    await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                      type: 'document',
+                      mimetype: 'video/mp4',
+                      caption: 'Facebook video'
+                    });
+                  } else {
+                    await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
+                      type: 'video',
+                      mimetype: 'video/mp4'
+                    });
+                  }
+                  
+                  if (shouldReact()) await replyCtx.react('✅');
+                  await fs.unlink(result.path).catch(() => {});
+                } catch (error) {
+                  if (shouldReact()) await replyCtx.react('❌');
+                  await replyCtx.reply('Failed to download selected quality. Please try again.');
+                }
+              },
+              timeout: 10 * 60 * 1000
+            });
+            
+            if (shouldReact()) await ctx.react('');
+
+          } catch (error) {
+            if (shouldReact()) await ctx.react('❌');
+            await ctx.reply('Could not download video. The video might be private, unavailable, or the link format is not supported.');
           }
 
-          let prompt = `*Facebook Video Found!*\n\n`;
-          prompt += `*Title:* ${videoData.title}\n`;
-          if (videoData.duration) prompt += `*Duration:* ${videoData.duration}\n`;
-          prompt += `\n*Select quality by replying with the number:*\n`;
-          prompt += qualities.map(q => q.label).join('\n');
-          
-          const sentMsg = await ctx.reply(prompt);
-          
-          pendingActions.set(ctx.chatId, sentMsg.key.id, {
-            type: 'facebook_quality',
-            userId: ctx.senderId,
-            data: { qualities, videoData },
-            match: (text) => {
-              if (typeof text !== 'string') return false;
-              const n = parseInt(text.trim(), 10);
-              return n >= 1 && n <= qualities.length;
-            },
-            handler: async (replyCtx, pending) => {
-              const choice = parseInt(replyCtx.text.trim(), 10);
-              const selected = pending.data.qualities[choice - 1];
-              
-              if (shouldReact()) await replyCtx.react('⏳');
-              
-              try {
-                const videoBuffer = await downloadMediaToBuffer(selected.url);
-                const size = videoBuffer.length;
-                
-                if (size > VIDEO_SIZE_LIMIT) {
-                  if (shouldReact()) await replyCtx.react('❌');
-                  return await replyCtx.reply(`Video too large (${formatFileSize(size)}). Limit is 100MB.`);
-                }
-                
-                if (selected.format === 'mp3') {
-                  await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
-                    type: 'audio',
-                    mimetype: 'audio/mpeg'
-                  });
-                } else if (size > VIDEO_MEDIA_LIMIT) {
-                  await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
-                    type: 'document',
-                    mimetype: 'video/mp4',
-                    caption: 'Facebook video'
-                  });
-                } else {
-                  await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
-                    type: 'video',
-                    mimetype: 'video/mp4'
-                  });
-                }
-                
-                if (shouldReact()) await replyCtx.react('✅');
-              } catch (error) {
-                // console.error('[FB] Download error:', error);
-                if (shouldReact()) await replyCtx.react('❌');
-                await replyCtx.reply('Failed to download selected quality. Please try again.');
-              }
-            },
-            timeout: 10 * 60 * 1000
-          });
-          
-          if (shouldReact()) await ctx.react('');
-
         } catch (error) {
-          // console.error('[FB] Command error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the Facebook video. Please try again.');
         }

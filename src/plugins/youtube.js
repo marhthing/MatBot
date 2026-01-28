@@ -1,11 +1,20 @@
 import youtubedl from 'youtube-dl-exec';
 import fs from 'fs-extra';
 import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import pendingActions, { shouldReact } from '../utils/pendingActions.js';
 
+const execAsync = promisify(exec);
 const VIDEO_SIZE_LIMIT = 2 * 1024 * 1024 * 1024;
 const VIDEO_MEDIA_LIMIT = 30 * 1024 * 1024;
 const AUDIO_SIZE_LIMIT = 100 * 1024 * 1024;
+
+(async () => {
+  try {
+    await execAsync('yt-dlp -U 2>/dev/null || pip install --upgrade yt-dlp 2>/dev/null || true');
+  } catch (e) {}
+})();
 
 function generateUniqueFilename(prefix = 'yt', extension = 'mp4') {
   const timestamp = Date.now();
@@ -66,7 +75,7 @@ function formatFileSize(bytes) {
 function formatDuration(seconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
+  const secs = Math.floor(seconds % 60);
   
   if (hours > 0) {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -87,6 +96,9 @@ const commonOptions = {
   noWarnings: true,
   noCheckCertificates: true,
   preferFreeFormats: true,
+  noPlaylist: true,
+  retries: 3,
+  socketTimeout: 30,
   addHeader: [
     'referer:youtube.com',
     'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -105,7 +117,7 @@ async function getVideoFormats(url) {
   
   if (info.formats) {
     for (const format of info.formats) {
-      if (format.vcodec && format.vcodec !== 'none' && format.ext === 'mp4') {
+      if (format.vcodec && format.vcodec !== 'none' && format.acodec && format.acodec !== 'none') {
         const height = format.height || 0;
         let quality = '';
         
@@ -124,8 +136,36 @@ async function getVideoFormats(url) {
             height,
             format_id: format.format_id,
             size,
-            formatString: `best[height<=${height}][ext=mp4]/best[ext=mp4]/best`
+            formatString: `best[height<=${height}][ext=mp4]/bestvideo[height<=${height}]+bestaudio/best[ext=mp4]/best`
           });
+        }
+      }
+    }
+    
+    if (formats.length === 0) {
+      for (const format of info.formats) {
+        if (format.vcodec && format.vcodec !== 'none') {
+          const height = format.height || 0;
+          let quality = '';
+          
+          if (height >= 1080) quality = '1080p';
+          else if (height >= 720) quality = '720p';
+          else if (height >= 480) quality = '480p';
+          else if (height >= 360) quality = '360p';
+          else if (height >= 240) quality = '240p';
+          else if (height > 0) quality = `${height}p`;
+          
+          if (quality && !seenQualities.has(quality)) {
+            seenQualities.add(quality);
+            const size = format.filesize || format.filesize_approx || 0;
+            formats.push({
+              quality,
+              height,
+              format_id: format.format_id,
+              size,
+              formatString: `bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`
+            });
+          }
         }
       }
     }
@@ -148,6 +188,7 @@ async function downloadVideoWithFormat(url, formatString, tempDir) {
     await youtubedl(url, {
       output: outputPath,
       format: formatString,
+      mergeOutputFormat: 'mp4',
       ...commonOptions
     });
 
@@ -222,7 +263,7 @@ async function downloadAudioWithYtDlp(url, tempDir) {
 export default {
   name: 'youtube',
   description: 'YouTube video and audio downloader with quality selection',
-  version: '2.0.0',
+  version: '2.1.0',
   author: 'MATDEV',
   commands: [
     {
@@ -271,7 +312,7 @@ export default {
                 await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
                   type: 'document',
                   mimetype: 'video/mp4',
-                  caption: path.basename(result.path)
+                  caption: title || 'YouTube video'
                 });
               } else {
                 await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
@@ -286,8 +327,30 @@ export default {
 
             const qualities = formats.map((f, idx) => ({
               label: `${idx + 1} - ${f.quality}${f.size ? ` (${formatFileSize(f.size)})` : ''}`,
-              formatString: f.formatString
+              formatString: f.formatString,
+              quality: f.quality
             }));
+
+            if (qualities.length === 1) {
+              const result = await downloadVideoWithFormat(validatedUrl.url, qualities[0].formatString, tempDir);
+              const videoBuffer = await fs.readFile(result.path);
+              
+              if (result.isLarge) {
+                await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                  type: 'document',
+                  mimetype: 'video/mp4',
+                  caption: title || 'YouTube video'
+                });
+              } else {
+                await ctx._adapter.sendMedia(ctx.chatId, videoBuffer, {
+                  type: 'video',
+                  mimetype: 'video/mp4'
+                });
+              }
+              if (shouldReact()) await ctx.react('✅');
+              await fs.unlink(result.path).catch(() => {});
+              return;
+            }
 
             let prompt = `*${title}*\n`;
             if (duration) prompt += `Duration: ${formatDuration(duration)}\n\n`;
@@ -299,7 +362,7 @@ export default {
             pendingActions.set(ctx.chatId, sentMsg.key.id, {
               type: 'youtube_quality',
               userId: ctx.senderId,
-              data: { qualities, url: validatedUrl.url, tempDir },
+              data: { qualities, url: validatedUrl.url, tempDir, title },
               match: (text) => {
                 if (typeof text !== 'string') return false;
                 const n = parseInt(text.trim(), 10);
@@ -307,17 +370,19 @@ export default {
               },
               handler: async (replyCtx, pending) => {
                 const choice = parseInt(replyCtx.text.trim(), 10);
-                const formatString = pending.data.qualities[choice - 1].formatString;
-                await replyCtx.react('⏳');
+                const selected = pending.data.qualities[choice - 1];
+                
+                if (shouldReact()) await replyCtx.react('⏳');
+                
                 try {
-                  const result = await downloadVideoWithFormat(pending.data.url, formatString, pending.data.tempDir);
+                  const result = await downloadVideoWithFormat(pending.data.url, selected.formatString, pending.data.tempDir);
                   const videoBuffer = await fs.readFile(result.path);
                   
                   if (result.isLarge) {
                     await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
                       type: 'document',
                       mimetype: 'video/mp4',
-                      caption: path.basename(result.path)
+                      caption: pending.data.title || 'YouTube video'
                     });
                   } else {
                     await replyCtx._adapter.sendMedia(replyCtx.chatId, videoBuffer, {
@@ -325,20 +390,25 @@ export default {
                       mimetype: 'video/mp4'
                     });
                   }
-                  await replyCtx.react('✅');
+                  
+                  if (shouldReact()) await replyCtx.react('✅');
                   await fs.unlink(result.path).catch(() => {});
                 } catch (error) {
-                  // console.error('YouTube download error:', error);
-                  await replyCtx.react('❌');
-                  await replyCtx.reply('Failed to download selected quality.');
+                  if (shouldReact()) await replyCtx.react('❌');
+                  
+                  let errorMsg = 'Failed to download selected quality.';
+                  if (error.message?.includes('too large')) {
+                    errorMsg = error.message;
+                  }
+                  await replyCtx.reply(errorMsg);
                 }
               },
               timeout: 10 * 60 * 1000
             });
+            
             if (shouldReact()) await ctx.react('');
 
           } catch (error) {
-            // console.error('YouTube video download failed:', error);
             if (shouldReact()) await ctx.react('❌');
             
             let errorMsg = 'Download failed. ';
@@ -356,7 +426,6 @@ export default {
           }
 
         } catch (error) {
-          // console.error('YouTube video error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the video');
         }
@@ -411,13 +480,11 @@ export default {
             await fs.unlink(result.path).catch(() => {});
 
           } catch (error) {
-            // console.error('YouTube audio download failed:', error);
             if (shouldReact()) await ctx.react('❌');
             await ctx.reply(`Failed to download audio: ${error.message}`);
           }
 
         } catch (error) {
-          // console.error('YouTube audio error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while processing the audio');
         }
@@ -475,13 +542,11 @@ export default {
             if (shouldReact()) await ctx.react('');
 
           } catch (error) {
-            // console.error('YouTube search error:', error);
             if (shouldReact()) await ctx.react('❌');
             await ctx.reply('Search failed. Please try again later.');
           }
 
         } catch (error) {
-          // console.error('YouTube search error:', error);
           if (shouldReact()) await ctx.react('❌');
           await ctx.reply('An error occurred while searching');
         }
