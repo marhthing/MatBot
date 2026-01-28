@@ -109,7 +109,7 @@ export default {
     {
       name: 'antistatus',
       description: 'Configure WhatsApp status antidelete destination and state',
-      usage: '.antistatus <jid|p|on|off>',
+      usage: '.antistatus <jid|g|p|on|off>',
       async execute(ctx) {
         // Use a separate config section for status
         const STORAGE_PATH = path.join(process.cwd(), 'storage', 'storage.json');
@@ -172,6 +172,11 @@ export default {
           await ctx.reply(`StatusAntidelete ${arg === 'on' ? 'enabled' : 'disabled'}.`);
           return;
         }
+        if (arg === 'g') {
+          setStatusConfig({ dest: 'group', jid: null });
+          await ctx.reply('StatusAntidelete will now send deleted statuses to the same chat.');
+          return;
+        }
         if (arg === 'p') {
           setStatusConfig({ dest: 'owner', jid: null });
           await ctx.reply('StatusAntidelete will now send deleted statuses to the owner.');
@@ -186,7 +191,7 @@ export default {
           await ctx.reply(`StatusAntidelete will now send deleted statuses to JID: ${arg}`);
           return;
         }
-        await ctx.reply('Invalid argument. Usage: .antistatus <jid|p|on|off>');
+        await ctx.reply('Invalid argument. Usage: .antistatus <jid|g|p|on|off>');
       }
     }
   ],
@@ -493,7 +498,11 @@ export default {
             const msg = memoryStore.getMessage('whatsapp', chatId, deletedMessageId) || memoryStore.getMessage('whatsapp', chatId, statusId);
             if (!msg) continue;
             const conf = getStatusConfig();
-            let destJid = conf.dest === 'custom' && conf.jid ? conf.jid : ownerJid;
+            let destJid;
+            if (conf.dest === 'group') destJid = chatId;
+            else if (conf.dest === 'custom' && conf.jid) destJid = conf.jid;
+            else if (conf.dest === 'owner') destJid = ownerJid;
+            if (!destJid) destJid = chatId; // fallback
             // --- Build notification exactly like .delete ---
             let senderJid = from;
             let senderNumber = senderJid.split('@')[0] || 'Unknown';
