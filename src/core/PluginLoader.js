@@ -52,6 +52,10 @@ export default class PluginLoader {
       // Register all commands from the plugin (if any)
       if (plugin.commands && Array.isArray(plugin.commands)) {
         for (const command of plugin.commands) {
+          // Patch: If command.run exists but not command.execute, set execute = run for registry compatibility
+          if (typeof command.run === 'function' && typeof command.execute !== 'function') {
+            command.execute = command.run;
+          }
           this.commandRegistry.register(command.name, command);
         }
       }
