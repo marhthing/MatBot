@@ -1,6 +1,7 @@
 import pendingActions from '../utils/pendingActions.js';
 import GameEngine from '../utils/GameEngine.js';
 import ai from '../utils/ai.js';
+import logger from '../utils/logger.js';
 
 const triviaQuestions = [
   { question: "What is the capital of France?", answer: "B", options: ["London", "Paris", "Berlin", "Madrid"] },
@@ -393,6 +394,10 @@ async function startTruthDareGame(ctx, game, type) {
   let content;
   try {
     content = await ai.getOrFetchItem(type);
+    // Defensive: fallback if null or not a string
+    if (!content || typeof content !== 'string') {
+      content = type === 'truth' ? "What is your biggest secret?" : "Do 10 pushups!";
+    }
   } catch (e) {
     content = type === 'truth' ? "What is your biggest secret?" : "Do 10 pushups!";
   }
