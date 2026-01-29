@@ -88,7 +88,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       browser: Browsers.macOS('Chrome'),
       logger: this.baileysLogger,
       generateHighQualityLinkPreview: true,
-      markOnlineOnConnect: alwaysOnline,
+      markOnlineOnConnect: false, // Default to false
       getMessage: async (key) => {
         const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
         if (msg?.message) return msg;
@@ -112,7 +112,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       logger: this.baileysLogger,
       printQRInTerminal: false,
       generateHighQualityLinkPreview: true,
-      markOnlineOnConnect: alwaysOnline,
+      markOnlineOnConnect: false, // Default to false
       getMessage: async (key) => {
         const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
         if (msg?.message) return msg;
