@@ -92,6 +92,8 @@ export default class Bot extends EventEmitter {
       adapter.commandRegistry = this.commandRegistry;
       
       adapter.on('message', (messageContext) => {
+        // Prevent duplicate execution of the same message ID if it's not an edit
+        // or handle it within handleMessage logic
         this.handleMessage(messageContext);
       });
 
@@ -126,6 +128,8 @@ export default class Bot extends EventEmitter {
       adapter.commandRegistry = this.commandRegistry;
       
       adapter.on('message', (messageContext) => {
+        // Prevent duplicate execution of the same message ID if it's not an edit
+        // or handle it within handleMessage logic
         this.handleMessage(messageContext);
       });
 

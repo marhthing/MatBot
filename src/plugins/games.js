@@ -225,10 +225,6 @@ async function startTicTacToeGame(ctx, game) {
   });
 }
 
-async function startTicTacToeGame(ctx, game) {
-  // ... existing code ...
-}
-
 async function startHangmanGame(ctx, game) {
   const words = ['WHATSAPP', 'BOT', 'REPLIT', 'PROGRAMMING', 'NODEJS', 'JAVASCRIPT', 'MOBILE', 'INTERNET'];
   game.word = words[Math.floor(Math.random() * words.length)];
@@ -345,10 +341,6 @@ async function startWordleGame(ctx, game) {
   });
 }
 
-async function startNumberGame(ctx, game) {
-  // ... existing code ...
-}
-
 async function startRiddleGame(ctx, game) {
   let r;
   try {
@@ -444,10 +436,6 @@ async function startTruthDareGame(ctx, game, type) {
   });
 }
 
-async function startWYRGame(ctx, game) {
-  // ... existing code ...
-}
-
 async function startAkinatorGame(ctx, game) {
   game.questionHistory = [];
   game.answers = [];
@@ -523,9 +511,109 @@ async function startAkinatorGame(ctx, game) {
 }
 
 const commands = [
-  // ... existing ...
+  {
+    name: 'trivia',
+    aliases: ['t'],
+    description: 'Start a trivia game',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game already running in this chat!');
+      const game = {
+        round: 0,
+        currentPlayerIndex: 0,
+        answerTimer: null
+      };
+      game.engine = new GameEngine(ctx, { 
+        gameType: 'trivia', 
+        minPlayers: 2,
+        maxPlayers: 10, 
+        onStart: () => sendTriviaQuestion(ctx, game) 
+      });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
+  {
+    name: 'ttt',
+    aliases: ['tictactoe'],
+    description: 'Start a Tic-Tac-Toe game',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game already running in this chat!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { 
+        gameType: 'ttt', 
+        maxPlayers: 2, 
+        onStart: () => startTicTacToeGame(ctx, game) 
+      });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
+  {
+    name: 'hangman',
+    description: 'Start a Hangman game',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { gameType: 'hangman', maxPlayers: 5, onStart: () => startHangmanGame(ctx, game) });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
+  {
+    name: 'wordle',
+    description: 'Start a Wordle game',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { gameType: 'wordle', maxPlayers: 1, onStart: () => startWordleGame(ctx, game) });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
+  {
+    name: 'riddle',
+    description: 'Solve a riddle',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { gameType: 'riddle', maxPlayers: 5, onStart: () => startRiddleGame(ctx, game) });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
+  {
+    name: 'truth',
+    description: 'Play Truth',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { gameType: 'truth', maxPlayers: 10, onStart: () => startTruthDareGame(ctx, game, 'truth') });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
+  {
+    name: 'dare',
+    description: 'Play Dare',
+    category: 'games',
+    execute: async (ctx) => {
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { gameType: 'dare', maxPlayers: 10, onStart: () => startTruthDareGame(ctx, game, 'dare') });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
+    }
+  },
   {
     name: 'akinator',
+    description: '🧞 Akinator game',
+    category: 'games',
     execute: async (ctx) => {
       if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
       const game = {};
@@ -537,5 +625,3 @@ const commands = [
 ];
 
 export default { name: 'games', commands };
-
-

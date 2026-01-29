@@ -21,27 +21,27 @@ function ensureDependencies() {
       if (missingDeps.length > 0) needInstall = true;
     } catch {}
   }
-  // if (needInstall) {
-  //   if (missingDeps.length > 0) {
-  //     console.log('Installing missing packages:', missingDeps.join(', '));
-  //     try {
-  //       execSync(`npm install ${missingDeps.join(' ')}`, { stdio: 'inherit' });
-  //       console.log('Missing packages installed.');
-  //     } catch (e) {
-  //       console.error('Failed to install missing packages', e);
-  //       process.exit(1);
-  //     }
-  //   } else {
-  //     console.log('node_modules missing, running full npm install...');
-  //     try {
-  //       execSync('npm install', { stdio: 'inherit' });
-  //       console.log('All packages installed.');
-  //     } catch (e) {
-  //       console.error('Failed to install packages', e);
-  //       process.exit(1);
-  //     }
-  //   }
-  // }
+  if (needInstall) {
+    if (missingDeps.length > 0) {
+      console.log('Installing missing packages:', missingDeps.join(', '));
+      try {
+        execSync(`npm install ${missingDeps.join(' ')}`, { stdio: 'inherit' });
+        console.log('Missing packages installed.');
+      } catch (e) {
+        console.error('Failed to install missing packages', e);
+        process.exit(1);
+      }
+    } else {
+      console.log('node_modules missing, running full npm install...');
+      try {
+        execSync('npm install', { stdio: 'inherit' });
+        console.log('All packages installed.');
+      } catch (e) {
+        console.error('Failed to install packages', e);
+        process.exit(1);
+      }
+    }
+  }
 }
 
 ensureDependencies();

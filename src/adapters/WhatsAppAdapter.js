@@ -232,6 +232,65 @@ export default class WhatsAppAdapter extends BaseAdapter {
         }
       }
     });
+
+    this.client.ev.on('messages.update', async (updates) => {
+      for (const update of updates) {
+        // WhatsApp edits often come as a protocol message in the update
+        const messageUpdate = update.update;
+        const key = update.key;
+
+        // Check for protocol message (edit)
+        const isProtocolEdit = messageUpdate.message?.protocolMessage?.type === 14 || messageUpdate.message?.protocolMessage?.editedMessage;
+        const isDirectEdit = messageUpdate.message?.editedMessage;
+
+        if (isProtocolEdit || isDirectEdit) {
+          try {
+            const editedMsg = isProtocolEdit 
+              ? (messageUpdate.message.protocolMessage.editedMessage || messageUpdate.message.protocolMessage)
+              : messageUpdate.message.editedMessage;
+            
+            if (editedMsg) {
+              const msg = {
+                key,
+                message: editedMsg.message || editedMsg,
+                pushName: update.pushName || 'User',
+                messageTimestamp: update.messageTimestamp || Math.floor(Date.now() / 1000)
+              };
+              
+              memoryStore.saveMessage('whatsapp', key.remoteJid, key.id, msg);
+              const messageContext = await this.parseMessage(msg);
+              
+              if (messageContext.command || (messageContext.text && messageContext.text.startsWith(this.config.prefix))) {
+                this.logger.info({ chatId: key.remoteJid, msgId: key.id }, 'Detected WhatsApp protocol edit, re-processing');
+                this.emitMessage(messageContext);
+              }
+            }
+          } catch (error) {
+            this.logger.error({ error }, 'Failed to process WhatsApp protocol edit');
+          }
+          continue;
+        }
+
+        // Fallback for standard message property updates
+        if (messageUpdate.message) {
+          try {
+            const msg = memoryStore.getMessage('whatsapp', key.remoteJid, key.id);
+            if (msg) {
+              const updatedMsg = { ...msg, ...messageUpdate };
+              memoryStore.saveMessage('whatsapp', key.remoteJid, key.id, updatedMsg);
+              
+              const messageContext = await this.parseMessage(updatedMsg);
+              if (messageContext.command || (messageContext.text && messageContext.text.startsWith(this.config.prefix))) {
+                this.logger.info({ chatId: key.remoteJid, msgId: key.id }, 'Detected standard message update, re-processing');
+                this.emitMessage(messageContext);
+              }
+            }
+          } catch (error) {
+            this.logger.error({ error }, 'Failed to process WhatsApp message update');
+          }
+        }
+      }
+    });
   }
 
   async promptPairingMethod() {
