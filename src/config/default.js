@@ -32,18 +32,20 @@ if (fs.existsSync(envPath)) {
 } else {
   envContent = '';
 }
+
 let changed = false;
 for (const [key, def] of Object.entries(requiredVars)) {
   const regex = new RegExp(`^${key}=`, 'm');
   if (!regex.test(envContent)) {
-    envContent += `\n${key}=${def}`;
+    envContent += (envContent.length > 0 && !envContent.endsWith('\n') ? '\n' : '') + `${key}=${def}`;
     changed = true;
   }
 }
+
 if (changed || !fs.existsSync(envPath)) {
   fs.writeFileSync(envPath, envContent.trim() + '\n');
-  // If .env was just created, reload env variables
-  dotenv.config();
+  // If .env was just created or updated, reload env variables
+  dotenv.config({ override: true });
 }
 
 export default {

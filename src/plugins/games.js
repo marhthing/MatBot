@@ -479,6 +479,48 @@ function scrambleWord(word) {
   return scrambled;
 }
 
+async function runTriviaTurns(ctx, players) {
+  let turnIndex = 0;
+  
+  const askQuestion = async () => {
+    if (turnIndex >= players.length) {
+      return ctx.reply('🏆 *Trivia Game Over!* Thank you for playing.');
+    }
+
+    const currentPlayer = players[turnIndex];
+    const question = triviaQuestions[Math.floor(Math.random() * triviaQuestions.length)];
+    
+    await ctx.reply(`🔔 @${currentPlayer.split('@')[0]}, it's your turn!\n\n❓ *Question:* ${question.question}\n\nOptions:\n${question.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n\nWait 30s for your answer...`, { mentions: [currentPlayer] });
+
+    const gameId = `trivia_turn_${ctx.chatId}`;
+    pendingActions.add(gameId, async (msgCtx) => {
+      // Ignore anyone else
+      if (msgCtx.senderId !== currentPlayer) {
+        return true; // Silent ignore (mark as handled)
+      }
+
+      const answer = msgCtx.text.toLowerCase().trim();
+      const correctAnswer = question.answer.toLowerCase();
+      
+      const isCorrect = answer === correctAnswer || 
+                        question.options.some((o, i) => (i + 1).toString() === answer && o.toLowerCase() === correctAnswer);
+
+      if (isCorrect) {
+        await msgCtx.reply('✅ *Correct!* Well done.');
+      } else {
+        await msgCtx.reply(`❌ *Incorrect!* The correct answer was: *${question.answer}*`);
+      }
+
+      pendingActions.remove(gameId);
+      turnIndex++;
+      setTimeout(askQuestion, 2000);
+      return true;
+    }, 30000);
+  }
+
+  await askQuestion();
+}
+
 export default {
   name: 'games',
   description: 'Fun games to play in chat',
@@ -488,7 +530,7 @@ export default {
     {
       name: 'trivia',
       aliases: ['quiz'],
-      description: 'Play a trivia game',
+      description: 'Start a multi-player trivia game',
       usage: '.trivia',
       category: 'games',
       ownerOnly: false,
@@ -496,75 +538,73 @@ export default {
       groupOnly: false,
       cooldown: 5,
       async execute(ctx) {
-        try {
-          const sendNextQuestion = async (replyCtx, score = 0, total = 0) => {
-            let trivia = ai.getCachedItem('trivia', triviaQuestions);
-            
-            if (!trivia || !trivia.question || !trivia.answer || !trivia.options) {
-              trivia = getRandomItem(triviaQuestions);
-            }
-            
-            const shuffledOptions = shuffleArray(trivia.options);
-            
-            let prompt = `*🎯 Trivia Question*\n\n${trivia.question}\n\n`;
-            shuffledOptions.forEach((opt, idx) => {
-              prompt += `${idx + 1}. ${opt}\n`;
-            });
-            prompt += `\n📊 Score: ${score}/${total}\n\nReply with the number or answer!\n_(Type *stop* to quit)_`;
-            
-            const sentMsg = await replyCtx.reply(prompt);
-            
-            pendingActions.set(replyCtx.chatId, sentMsg.key.id, {
-              type: 'trivia_game',
-              userId: replyCtx.senderId,
-              data: { answer: trivia.answer, options: shuffledOptions, score, total },
-              match: (text) => {
-                if (typeof text !== 'string') return false;
-                const clean = text.trim().toLowerCase();
-                return clean === 'stop' || clean.length > 0;
-              },
-              handler: async (answerCtx, pending) => {
-                const userAnswer = answerCtx.text.trim().toLowerCase();
-                
-                if (userAnswer === 'stop') {
-                  await answerCtx.reply(`*🎯 Game Over!*\n\nFinal Score: ${pending.data.score}/${pending.data.total}\n\nThanks for playing!`);
-                  return true;
-                }
-                
-                const num = parseInt(userAnswer, 10);
-                let isCorrect = false;
-                
-                if (num >= 1 && num <= 4) {
-                  const selectedOption = pending.data.options[num - 1]?.toLowerCase() || '';
-                  isCorrect = selectedOption.includes(pending.data.answer) || pending.data.answer.includes(selectedOption);
-                } else {
-                  isCorrect = userAnswer.includes(pending.data.answer) || pending.data.answer.includes(userAnswer);
-                }
-                
-                const newScore = isCorrect ? pending.data.score + 1 : pending.data.score;
-                const newTotal = pending.data.total + 1;
-                
-                if (isCorrect) {
-                  await answerCtx.reply(`✅ Correct!`);
-                  if (shouldReact()) await answerCtx.react('🎉');
-                } else {
-                  await answerCtx.reply(`❌ Wrong! The answer was: ${pending.data.answer}`);
-                }
-                
-                await sendNextQuestion(answerCtx, newScore, newTotal);
-                return false;
-              },
-              timeout: 2 * 60 * 1000
-            });
-          };
-          
-          await ctx.reply(`*🎯 Trivia Game Started!*\n\nAnswer questions to earn points.\nType *stop* anytime to quit.`);
-          await sendNextQuestion(ctx, 0, 0);
-          
-        } catch (error) {
-          console.error('Trivia error:', error);
-          await ctx.reply('An error occurred starting the trivia game.');
+        const chatId = ctx.chatId;
+        const gameId = `trivia_lobby_${chatId}`;
+        
+        if (pendingActions.has(gameId)) {
+          return ctx.reply('A trivia game is already in progress or starting in this chat!');
         }
+
+        const participants = new Set();
+        
+        // Add bot owner as the first participant (the person starting the game)
+        let ownerJid = ctx.config?.ownerNumber;
+        if (ownerJid) {
+          ownerJid = ownerJid.replace(/[^\d]/g, '') + '@s.whatsapp.net';
+        }
+        
+        if (ownerJid) participants.add(ownerJid);
+        
+        // Always add the sender as well
+        participants.add(ctx.senderId);
+
+        // For private chats, always use senderId for mentions (not chatId)
+        let mentionList = Array.from(participants);
+        if (!ctx.isGroup) {
+          // In private chat, ensure the mention is the owner and the sender (never chatId)
+          mentionList = [ownerJid, ctx.senderId].filter(jid => !!jid).filter((v, i, arr) => arr.indexOf(v) === i);
+        }
+
+        let timeLeft = 40;
+        await ctx.reply(`🎮 *TRIVIA GAME LOBBY*\n\nUser @${ctx.senderId.split('@')[0]} started a trivia game!\n\nType *join* to participate.\n\n⏳ Time left: *${timeLeft}s*\n\n👥 Registered: ${participants.size} players (Bot Owner included)`, { mentions: mentionList });
+
+        // Registration phase
+        pendingActions.add(gameId, async (msgCtx) => {
+          if (msgCtx.text.toLowerCase() === 'join') {
+            const senderJid = msgCtx.senderId;
+            if (participants.has(senderJid)) {
+              if (senderJid === ownerJid) {
+                return msgCtx.reply('The Bot Owner is already a participant in every game!');
+              }
+              return msgCtx.reply('You are already a participant!');
+            }
+            participants.add(senderJid);
+            await msgCtx.react('✅');
+            return true; // Mark as handled
+          }
+          return false;
+        }, 45000);
+
+        // Update at 20 seconds
+        setTimeout(async () => {
+          timeLeft = 20;
+          await ctx.reply(`🎮 *TRIVIA GAME LOBBY*\n\nType *join* to participate.\n\n⏳ Time left: *${timeLeft}s*\n\n👥 Registered: ${participants.size} players`);
+        }, 20000);
+
+        // Start game after 40 seconds
+        setTimeout(async () => {
+          pendingActions.remove(gameId);
+          
+          if (participants.size === 0) {
+            return ctx.reply('Game cancelled: No one joined.');
+          }
+
+          const players = Array.from(participants);
+          await ctx.reply(`🏁 *TRIVIA GAME STARTING!*\n\nPlayers: ${players.map(p => `@${p.split('@')[0]}`).join(', ')}\n\n*Rules:* First correct answer wins!`, { mentions: players });
+
+          // Start turns
+          await runTriviaTurns(ctx, players);
+        }, 40000);
       }
     },
     {
@@ -589,11 +629,18 @@ export default {
           pendingActions.set(ctx.chatId, sentMsg.key.id, {
             type: 'scramble_game',
             userId: ctx.senderId,
-            data: { answer: word },
+            data: { answer: word, hintsGiven: 0 },
             match: (text) => typeof text === 'string' && text.trim().length > 0,
             handler: async (replyCtx, pending) => {
               const userAnswer = replyCtx.text.trim().toLowerCase();
               
+              if (userAnswer === 'hint') {
+                pending.data.hintsGiven++;
+                const hint = pending.data.answer.substring(0, pending.data.hintsGiven).padEnd(pending.data.answer.length, '_');
+                await replyCtx.reply(`*💡 Hint:* ${hint.toUpperCase()}`);
+                return false;
+              }
+
               if (userAnswer === pending.data.answer) {
                 await replyCtx.reply(`✅ Correct! The word was *${pending.data.answer}*!`);
                 if (shouldReact()) await replyCtx.react('🎉');
@@ -979,6 +1026,16 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
+          // Tic-Tac-Toe is normally 2 players: Bot Owner vs Another participant
+          const ownerJid = ctx.config.ownerNumber.replace(/[^\d]/g, '') + '@s.whatsapp.net';
+          const senderJid = ctx.senderId;
+          const isOwnerPlayer = senderJid === ownerJid;
+          
+          const playerDisplay = isOwnerPlayer ? 'Owner' : `@${senderJid.split('@')[0]}`;
+          const opponentDisplay = isOwnerPlayer ? 'Opponent' : 'Owner';
+
+          await ctx.reply(`*⭕❌ Tic-Tac-Toe*\n\nStarting game: ${playerDisplay} vs ${opponentDisplay}`, { mentions: [senderJid, ownerJid] });
+
           const board = [0, 0, 0, 0, 0, 0, 0, 0, 0];
           
           const prompt = `*⭕❌ Tic-Tac-Toe*\n\nYou are ❌, I am ⭕\n\n${renderTicTacToeBoard(board)}\n\nReply with a number (1-9) to place your X!`;
@@ -1351,7 +1408,7 @@ export default {
                   match: (text) => {
                     if (typeof text !== 'string') return false;
                     const clean = text.trim().toLowerCase();
-                    return ['yes', 'no', 'y', 'n', 'maybe', 'idk'].includes(clean);
+                    return ['yes', 'no', 'y', 'n', 'maybe', 'idk', 'probably', 'probably not'].includes(clean);
                   },
                   handler: async (answerCtx, qPending) => {
                     const answer = answerCtx.text.trim().toLowerCase();

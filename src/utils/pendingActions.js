@@ -11,6 +11,24 @@ class PendingActions {
     this.actions = {};
   }
 
+  has(pendingId) {
+    for (const chatId in this.actions) {
+      if (this.actions[chatId][pendingId]) return true;
+    }
+    return false;
+  }
+
+  add(pendingId, handler, timeout = 10 * 60 * 1000) {
+    // We'll use a special 'global' or 'system' chatId for non-reply based actions
+    const chatId = 'system_global'; 
+    this.set(chatId, pendingId, { handler, timeout });
+  }
+
+  remove(pendingId) {
+    const chatId = 'system_global';
+    this.delete(chatId, pendingId);
+  }
+
   set(chatId, pendingId, { type, userId, data, match, handler, timeout = 10 * 60 * 1000 }) {
     if (!this.actions[chatId]) this.actions[chatId] = {};
     // Clear any previous timeout for this pendingId
@@ -89,6 +107,12 @@ class PendingActions {
     
     // 2. Fallback: match most recent pending action for this chat (user doesn't need to quote)
     const pendings = this.actions[chatId] ? Object.entries(this.actions[chatId]) : [];
+    
+    // Add global system actions to the pool for this chat
+    if (this.actions['system_global']) {
+      pendings.push(...Object.entries(this.actions['system_global']));
+    }
+
     if (pendings.length > 0) {
       // Sort by created time descending (most recent first)
       pendings.sort((a, b) => b[1].created - a[1].created);
@@ -102,10 +126,14 @@ class PendingActions {
         // Check if message matches
         if (pending.match && !pending.match(messageText, ctx, pending)) continue;
         console.log('[pendingActions] fallback matched pending', { pendingId, type: pending.type });
-        if (pending.handler) await pending.handler(ctx, pending);
-        this.delete(chatId, pendingId);
-        console.log('[pendingActions] fallback action complete and deleted');
-        return true;
+        if (pending.handler) {
+          const result = await pending.handler(ctx, pending);
+          if (result === true) {
+            this.delete(this.actions[chatId]?.[pendingId] ? chatId : 'system_global', pendingId);
+            console.log('[pendingActions] fallback action complete and deleted');
+            return true;
+          }
+        }
       }
     }
     return false;

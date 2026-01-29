@@ -1,4 +1,5 @@
 import ai from '../utils/ai.js';
+import { shouldReact } from '../utils/pendingActions.js';
 
 export default {
   name: 'ai',
@@ -24,16 +25,16 @@ export default {
             return await ctx.reply('Please ask me something!\n\nUsage: .ai What is the meaning of life?');
           }
           
-          await ctx.react('🤔');
+          if (shouldReact()) await ctx.react('🤔');
           
           const response = await ai.askAI(question);
           
           if (response) {
             await ctx.reply(`🤖 *AI Response*\n\n${response}`);
-            await ctx.react('✅');
+            if (shouldReact()) await ctx.react('✅');
           } else {
             await ctx.reply('Sorry, I couldn\'t generate a response. Please try again.');
-            await ctx.react('❌');
+            if (shouldReact()) await ctx.react('❌');
           }
           
         } catch (error) {
@@ -44,7 +45,7 @@ export default {
           } else {
             await ctx.reply('An error occurred while processing your request. Please try again later.');
           }
-          await ctx.react('❌');
+          if (shouldReact()) await ctx.react('❌');
         }
       }
     },
