@@ -1,272 +1,541 @@
-import pendingActions, { shouldReact } from '../utils/pendingActions.js';
+import pendingActions from '../utils/pendingActions.js';
+import GameEngine from '../utils/GameEngine.js';
 import ai from '../utils/ai.js';
 
 const triviaQuestions = [
-  { question: "What is the capital of France?", answer: "paris", options: ["London", "Paris", "Berlin", "Madrid"] },
-  { question: "What planet is known as the Red Planet?", answer: "mars", options: ["Venus", "Mars", "Jupiter", "Saturn"] }
+  { question: "What is the capital of France?", answer: "B", options: ["London", "Paris", "Berlin", "Madrid"] },
+  { question: "What planet is known as the Red Planet?", answer: "B", options: ["Venus", "Mars", "Jupiter", "Saturn"] },
+  { question: "What is the largest ocean on Earth?", answer: "C", options: ["Atlantic", "Indian", "Pacific", "Arctic"] },
+  { question: "Who painted the Mona Lisa?", answer: "C", options: ["Picasso", "Van Gogh", "Leonardo", "Michelangelo"] },
+  { question: "What is the chemical symbol for gold?", answer: "B", options: ["Ag", "Au", "Fe", "Cu"] }
 ];
 
-const wordList = [
-  "apple", "beach"
-];
+const activeGames = new Map();
+const optionLetters = ['A', 'B', 'C', 'D'];
 
-const emojiPuzzles = [
-  { emoji: "🎬🦁👑", answer: "lion king", hint: "Disney animated movie" },
-  { emoji: "🕷️🧔", answer: "spiderman", hint: "Marvel superhero" }
-];
+function normalizeId(id) {
+  if (!id) return '';
+  return id.split('@')[0].split(':')[0].replace(/\D/g, '');
+}
 
-const mathProblems = [
-  { question: "What is 15 + 27?", answer: "42" },
-  { question: "What is 144 / 12?", answer: "12" }
-];
+function formatLeaderboard(game) {
+  const scores = game.engine.scores;
+  if (!scores || scores.size === 0) return 'No scores yet!';
+  const sorted = [...scores.entries()].sort((a, b) => b[1].score - a[1].score);
+  return sorted.map(([oderId, data], i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+    return `${medal} @${normalizeId(oderId)} (${data.name}) - ${data.score} pts`;
+  }).join('\n');
+}
 
-const truthQuestions = [
-  "What's your most embarrassing moment?",
-  "What's your biggest fear?"
-];
+async function endTriviaGame(ctx, game, reason) {
+  activeGames.delete(ctx.chatId);
+  if (game.answerTimer) clearTimeout(game.answerTimer);
+  
+  const scores = game.engine.scores;
+  const participants = game.engine.participants;
+  const sorted = [...scores.entries()].sort((a, b) => b[1].score - a[1].score);
+  const winner = sorted[0];
+  
+  await ctx.reply(
+    `*🏁 Trivia Game Over!*\n\n` +
+    `Reason: ${reason}\n` +
+    `Total Rounds: ${game.round}\n\n` +
+    `*🏆 Final Scores:*\n${formatLeaderboard(game)}` +
+    (winner ? `\n\n👑 Winner: @${normalizeId(winner[0])} (${winner[1].name})!` : ''),
+    { mentions: [...participants.keys()] }
+  );
+}
 
-const dareActions = [
-  "Send a voice note singing your favorite song",
-  "Send a selfie with a silly face"
-];
-
-const wouldYouRatherQuestions = [
-  { a: "Be able to fly", b: "Be invisible" },
-  { a: "Have unlimited money", b: "Have unlimited love" }
-];
-
-const hangmanWords = [
-  { word: "JAVASCRIPT", hint: "Programming language for web" },
-  { word: "WHATSAPP", hint: "Messaging application" }
-];
-
-const riddles = [
-  { riddle: "What has keys but no locks?", answer: "piano", hint: "Musical instrument" },
-  { riddle: "What has hands but can't clap?", answer: "clock", hint: "Tells time" }
-];
-
-const capitals = [
-  { country: "Germany", capital: "Berlin" },
-  { country: "Italy", capital: "Rome" }
-];
-
-const flagQuiz = [
-  { emoji: "🇺🇸", answer: "usa", alt: ["united states", "america"] },
-  { emoji: "🇬🇧", answer: "uk", alt: ["united kingdom", "britain", "england"] }
-];
-
-const typingChallenges = [
-  "The quick brown fox jumps over the lazy dog",
-  "Pack my box with five dozen liquor jugs"
-];
-
-// Helper functions
-function getRandomItem(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
+async function sendTriviaQuestion(ctx, game) {
+  const participants = game.engine.participants;
+  if (participants.size < 2) {
+    await endTriviaGame(ctx, game, 'Only one player remaining!');
+    return;
+  }
+  
+  game.round++;
+  
+  // Try to fetch from AI
+  let q;
+  try {
+    q = await ai.getOrFetchItem('trivia', triviaQuestions);
+  } catch (e) {
+    q = triviaQuestions[Math.floor(Math.random() * triviaQuestions.length)];
+  }
+  
+  if (!q) q = triviaQuestions[0];
+  game.currentQuestion = q;
+  
+  const currentPlayerArr = [...participants.entries()];
+  game.currentPlayerIndex = game.currentPlayerIndex % currentPlayerArr.length;
+  const [currentPlayerId, currentPlayerData] = currentPlayerArr[game.currentPlayerIndex];
+  game.currentTurn = currentPlayerId;
+  
+  const options = q.options.map((opt, i) => `${optionLetters[i]}. ${opt}`).join('\n');
+  const sent = await ctx.reply(
+    `*🧠 AI Trivia - Round ${game.round}*\n\n` +
+    `${q.question}\n\n${options}\n\n` +
+    `👤 @${normalizeId(currentPlayerId)} (${currentPlayerData.name})'s turn!\n` +
+    `⏱️ Time: 30 seconds\n\n` +
+    `Reply with A, B, C or D\n` +
+    `Type *stop* to end the game`,
+    { mentions: [currentPlayerId] }
+  );
+  
+  if (game.answerTimer) clearTimeout(game.answerTimer);
+  game.answerTimer = setTimeout(async () => {
+    if (participants.has(game.currentTurn)) {
+      await ctx.reply(`⏰ Time's up! @${normalizeId(game.currentTurn)} is eliminated!`, { mentions: [game.currentTurn] });
+      participants.delete(game.currentTurn);
+    }
+    game.currentPlayerIndex++;
+    await sendTriviaQuestion(ctx, game);
+  }, 30000);
+  
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'trivia_answer',
+    data: { gameId: ctx.chatId },
+    timeout: 35000,
+    match: (text) => ['A', 'B', 'C', 'D', 'STOP'].includes(text.toUpperCase().trim()),
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g || g.engine.phase !== 'playing') return true;
+      
+      const fromMe = replyCtx.isFromMe || replyCtx.message?.key?.fromMe;
+      const botJid = replyCtx.platformAdapter?.client?.user?.id || replyCtx.client?.user?.id || "";
+      const senderId = fromMe ? botJid : replyCtx.senderId;
+      const text = replyCtx.text.toUpperCase().trim();
+      
+      if (text === 'STOP') {
+        if (g.answerTimer) clearTimeout(g.answerTimer);
+        await endTriviaGame(replyCtx, g, 'Game stopped by player');
+        return true;
+      }
+      
+      if (normalizeId(senderId) !== normalizeId(g.currentTurn)) {
+        await replyCtx.reply(`❌ Not your turn! It's @${normalizeId(g.currentTurn)}'s turn.`, { mentions: [g.currentTurn] });
+        return false;
+      }
+      
+      if (g.answerTimer) clearTimeout(g.answerTimer);
+      const isCorrect = text === g.currentQuestion.answer || text === g.currentQuestion.answer.toUpperCase();
+      
+      if (isCorrect) {
+        const pData = g.engine.scores.get(senderId);
+        if (pData) pData.score += 10;
+        await replyCtx.reply(`✅ Correct! +10 points\n\n*Current Scores:*\n${formatLeaderboard(g)}`, { mentions: [senderId] });
+      } else {
+        await replyCtx.reply(`❌ Wrong! The answer was ${g.currentQuestion.answer}.\nYou are eliminated!`, { mentions: [senderId] });
+        participants.delete(senderId);
+      }
+      
+      g.currentPlayerIndex++;
+      if (participants.size < 2) {
+        await endTriviaGame(replyCtx, g, 'Only one player remaining!');
+      } else {
+        await new Promise(r => setTimeout(r, 2000));
+        await sendTriviaQuestion(replyCtx, g);
+      }
+      return true;
+    }
+  });
 }
 
 function renderTicTacToeBoard(board) {
   const symbols = board.map(v => v === 0 ? '⬜' : (v === 1 ? '❌' : '⭕'));
-  return `1️⃣ ${symbols[0]} | 2️⃣ ${symbols[1]} | 3️⃣ ${symbols[2]}\n4️⃣ ${symbols[3]} | 5️⃣ ${symbols[4]} | 6️⃣ ${symbols[5]}\n7️⃣ ${symbols[6]} | 8️⃣ ${symbols[7]} | 9️⃣ ${symbols[8]}`;
+  return `A1: ${symbols[0]} | A2: ${symbols[1]} | A3: ${symbols[2]}\nB1: ${symbols[3]} | B2: ${symbols[4]} | B3: ${symbols[5]}\nC1: ${symbols[6]} | C2: ${symbols[7]} | C3: ${symbols[8]}`;
 }
 
 function checkTicTacToeWinner(board) {
-  const wins = [
-    [0, 1, 2], [3, 4, 5], [6, 7, 8],
-    [0, 3, 6], [1, 4, 7], [2, 5, 8],
-    [0, 4, 8], [2, 4, 6]
-  ];
+  const wins = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
   for (const [a, b, c] of wins) {
     if (board[a] !== 0 && board[a] === board[b] && board[a] === board[c]) return board[a];
   }
   return board.includes(0) ? null : 'draw';
 }
 
-function renderHangman(wrong) {
-  const stages = [
-    '   +---+\n   |   |\n       |\n       |\n       |\n       |\n=========',
-    '   +---+\n   |   |\n   O   |\n       |\n       |\n       |\n=========',
-    '   +---+\n   |   |\n   O   |\n   |   |\n       |\n       |\n=========',
-    '   +---+\n   |   |\n   O   |\n  /|   |\n       |\n       |\n=========',
-    '   +---+\n   |   |\n   O   |\n  /|\\  |\n       |\n       |\n=========',
-    '   +---+\n   |   |\n   O   |\n  /|\\  |\n  /    |\n       |\n=========',
-    '   +---+\n   |   |\n   O   |\n  /|\\  |\n  / \\  |\n       |\n========='
-  ];
-  return '```' + stages[wrong] + '```';
+function tttPositionToIndex(pos) {
+  const map = { 'A1': 0, 'A2': 1, 'A3': 2, 'B1': 3, 'B2': 4, 'B3': 5, 'C1': 6, 'C2': 7, 'C3': 8 };
+  return map[pos.toUpperCase()] ?? -1;
 }
 
-export default [
-  {
-    name: 'trivia',
-    aliases: ['quiz'],
-    description: 'Play a trivia game',
-    usage: '.trivia',
-    category: 'games',
-    execute: async (ctx) => {
-      const q = getRandomItem(triviaQuestions);
-      const options = q.options.join('\n• ');
-      const sent = await ctx.reply(`*🧠 Trivia Quiz*\n\n${q.question}\n\n• ${options}\n\nReply with the answer!`);
-      pendingActions.set(ctx.chatId, sent.key.id, {
-        type: 'trivia',
-        userId: ctx.senderId,
-        data: { answer: q.answer },
-        match: (text) => text.toLowerCase().includes(q.answer),
-        handler: async (replyCtx) => {
-          await replyCtx.reply('✅ Correct!');
-          if (shouldReact()) await replyCtx.react('🎉');
-        }
-      });
-    }
-  },
-  {
-    name: '8ball',
-    aliases: ['magic8'],
-    description: 'Ask the magic 8-ball',
-    usage: '.8ball <question>',
-    category: 'games',
-    execute: async (ctx) => {
-      if (!ctx.args[0]) return ctx.reply('Please ask a question!');
-      const responses = ['Yes', 'No', 'Maybe', 'Certainly', 'Never'];
-      await ctx.reply(`🎱 *Magic 8-Ball*\n\n❓ ${ctx.args.join(' ')}\n\n${getRandomItem(responses)}`);
-    }
-  },
-  {
-    name: 'truthordare',
-    aliases: ['tod'],
-    description: 'Play Truth or Dare',
-    usage: '.truthordare',
-    category: 'games',
-    execute: async (ctx) => {
-      const sent = await ctx.reply('*🎭 Truth or Dare*\n\nReply with *truth* or *dare*');
-      pendingActions.set(ctx.chatId, sent.key.id, {
-        type: 'tod',
-        userId: ctx.senderId,
-        match: (text) => ['truth', 'dare'].includes(text.toLowerCase()),
-        handler: async (replyCtx) => {
-          const isTruth = replyCtx.text.toLowerCase() === 'truth';
-          const list = isTruth ? truthQuestions : dareActions;
-          await replyCtx.reply(`*${isTruth ? '🤔 Truth' : '😈 Dare'}*\n\n${getRandomItem(list)}`);
-        }
-      });
-    }
-  },
-  {
-    name: 'tictactoe',
-    aliases: ['ttt'],
-    description: 'Play Tic-Tac-Toe',
-    usage: '.tictactoe',
-    category: 'games',
-    execute: async (ctx) => {
-      const board = [0, 0, 0, 0, 0, 0, 0, 0, 0];
-      const sent = await ctx.reply(`*⭕❌ Tic-Tac-Toe*\n\n${renderTicTacToeBoard(board)}\n\nReply with a number (1-9) to place your X!`);
-      pendingActions.set(ctx.chatId, sent.key.id, {
-        type: 'ttt',
-        userId: ctx.senderId,
-        data: { board },
-        match: (text) => /^[1-9]$/.test(text),
-        handler: async (replyCtx, pending) => {
-          const pos = parseInt(replyCtx.text) - 1;
-          if (pending.data.board[pos] !== 0) {
-            await replyCtx.reply('Spot taken!');
-            return false;
-          }
-          pending.data.board[pos] = 1;
-          let winner = checkTicTacToeWinner(pending.data.board);
-          if (winner) {
-            await replyCtx.reply(`${renderTicTacToeBoard(pending.data.board)}\n\n${winner === 'draw' ? 'Draw!' : 'You win!'}`);
-            return true;
-          }
-          const avail = pending.data.board.map((v, i) => v === 0 ? i : -1).filter(i => i !== -1);
-          pending.data.board[getRandomItem(avail)] = 2;
-          winner = checkTicTacToeWinner(pending.data.board);
-          if (winner) {
-            await replyCtx.reply(`${renderTicTacToeBoard(pending.data.board)}\n\n${winner === 'draw' ? 'Draw!' : 'I win!'}`);
-            return true;
-          }
-          const next = await replyCtx.reply(`${renderTicTacToeBoard(pending.data.board)}\n\nYour turn!`);
-          pendingActions.set(replyCtx.chatId, next.key.id, pending);
-          return false;
-        }
-      });
-    }
-  },
-  {
-    name: 'hangman',
-    aliases: ['hang'],
-    description: 'Play Hangman',
-    usage: '.hangman',
-    category: 'games',
-    execute: async (ctx) => {
-      const item = getRandomItem(hangmanWords);
-      const data = { word: item.word, guessed: [], wrong: 0, hint: item.hint };
-      const display = data.word.split('').map(() => '_').join(' ');
-      const sent = await ctx.reply(`*🎮 Hangman*\n\n${renderHangman(0)}\n\nWord: ${display}\nHint: ${data.hint}\n\nGuess a letter!`);
-      const handler = async (replyCtx, pending) => {
-        const char = replyCtx.text.toUpperCase();
-        if (pending.data.guessed.includes(char)) return false;
-        pending.data.guessed.push(char);
-        if (!pending.data.word.includes(char)) pending.data.wrong++;
-        const current = pending.data.word.split('').map(l => pending.data.guessed.includes(l) ? l : '_').join(' ');
-        if (pending.data.wrong >= 6) {
-          await replyCtx.reply(`💀 Game Over! Word: ${pending.data.word}`);
-          return true;
-        }
-        if (!current.includes('_')) {
-          await replyCtx.reply(`🎉 You win! Word: ${pending.data.word}`);
-          return true;
-        }
-        const next = await replyCtx.reply(`${renderHangman(pending.data.wrong)}\n\nWord: ${current}\nGuessed: ${pending.data.guessed.join(', ')}`);
-        pendingActions.set(replyCtx.chatId, next.key.id, pending);
+async function startTicTacToeGame(ctx, game) {
+  const players = [...game.engine.participants.entries()];
+  game.player1 = players[0][0];
+  game.player2 = players[1][0];
+  game.currentTurn = game.player1;
+  game.board = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  
+  const p1Name = players[0][1].name;
+  const p2Name = players[1][1].name;
+  
+  const sent = await ctx.reply(
+    `*⭕❌ Tic-Tac-Toe*\n\n` +
+    `${p1Name} (❌) vs ${p2Name} (⭕)\n\n` +
+    `${renderTicTacToeBoard(game.board)}\n\n` +
+    `👤 @${normalizeId(game.player1)} (${p1Name})'s turn! (❌)\n` +
+    `Reply with position: A1, A2, A3, B1, B2, B3, C1, C2, C3\n` +
+    `Type *stop* to quit`,
+    { mentions: [game.player1, game.player2] }
+  );
+  
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'ttt_move',
+    data: { gameId: ctx.chatId },
+    timeout: 5 * 60 * 1000,
+    match: (text) => ['STOP', 'A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3'].includes(text.toUpperCase().trim()),
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g || g.engine.phase !== 'playing') return true;
+      const senderId = replyCtx.senderId;
+      const text = replyCtx.text.toUpperCase().trim();
+      
+      if (text === 'STOP') {
+        activeGames.delete(ctx.chatId);
+        await replyCtx.reply(`🏁 Game quit!`);
+        return true;
+      }
+      
+      if (normalizeId(senderId) !== normalizeId(g.currentTurn)) {
+        await replyCtx.reply(`❌ Not your turn!`);
         return false;
-      };
-      pendingActions.set(ctx.chatId, sent.key.id, { type: 'hangman', userId: ctx.senderId, data, match: (t) => /^[a-zA-Z]$/.test(t), handler });
+      }
+      
+      const pos = tttPositionToIndex(text);
+      if (pos === -1 || g.board[pos] !== 0) {
+        await replyCtx.reply('Invalid position!');
+        return false;
+      }
+      
+      g.board[pos] = senderId === g.player1 ? 1 : 2;
+      const winner = checkTicTacToeWinner(g.board);
+      if (winner) {
+        activeGames.delete(ctx.chatId);
+        await replyCtx.reply(`${renderTicTacToeBoard(g.board)}\n\n${winner === 'draw' ? "🤝 Draw!" : "🎉 Winner!"}`);
+        return true;
+      }
+      
+      g.currentTurn = g.currentTurn === g.player1 ? g.player2 : g.player1;
+      const nextP = g.engine.participants.get(g.currentTurn);
+      const nextS = await replyCtx.reply(`${renderTicTacToeBoard(g.board)}\n\n👤 @${normalizeId(g.currentTurn)} (${nextP.name})'s turn!`, { mentions: [g.currentTurn] });
+      pendingActions.set(replyCtx.chatId, nextS.key.id, { ...pendingActions.get(replyCtx.chatId, sent.key.id) });
+      return false;
     }
-  },
-  {
-    name: 'wyr',
-    aliases: ['wouldyourather'],
-    description: 'Would You Rather',
-    usage: '.wyr',
-    category: 'games',
-    execute: async (ctx) => {
-      const q = getRandomItem(wouldYouRatherQuestions);
-      await ctx.reply(`*🤔 Would You Rather*\n\n🅰️ ${q.a}\n\nor\n\n🅱️ ${q.b}`);
+  });
+}
+
+async function startTicTacToeGame(ctx, game) {
+  // ... existing code ...
+}
+
+async function startHangmanGame(ctx, game) {
+  const words = ['WHATSAPP', 'BOT', 'REPLIT', 'PROGRAMMING', 'NODEJS', 'JAVASCRIPT', 'MOBILE', 'INTERNET'];
+  game.word = words[Math.floor(Math.random() * words.length)];
+  game.guessedLetters = new Set();
+  game.wrongGuesses = 0;
+  game.maxWrong = 6;
+  game.currentTurn = [...game.engine.participants.keys()][0];
+  
+  const displayWord = game.word.split('').map(l => game.guessedLetters.has(l) ? l : '_').join(' ');
+  const sent = await ctx.reply(
+    `*😵 Hangman*\n\n` +
+    `Word: ${displayWord}\n` +
+    `Wrong: ${game.wrongGuesses}/${game.maxWrong}\n` +
+    `Guessed: ${[...game.guessedLetters].join(', ') || 'None'}\n\n` +
+    `👤 @${normalizeId(game.currentTurn)}'s turn!\n` +
+    `Type a letter (A-Z) or *stop*`,
+    { mentions: [game.currentTurn] }
+  );
+  
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'hangman_guess',
+    data: { gameId: ctx.chatId },
+    timeout: 5 * 60 * 1000,
+    match: (text) => text.length === 1 || text.toUpperCase() === 'STOP',
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g || g.engine.phase !== 'playing') return true;
+      if (normalizeId(replyCtx.senderId) !== normalizeId(g.currentTurn)) return false;
+      
+      const letter = replyCtx.text.toUpperCase().trim();
+      if (letter === 'STOP') { activeGames.delete(ctx.chatId); await replyCtx.reply('Game stopped.'); return true; }
+      if (g.guessedLetters.has(letter)) { await replyCtx.reply('Already guessed!'); return false; }
+      
+      g.guessedLetters.add(letter);
+      if (!g.word.includes(letter)) g.wrongGuesses++;
+      
+      const won = g.word.split('').every(l => g.guessedLetters.has(l));
+      const lost = g.wrongGuesses >= g.maxWrong;
+      
+      if (won || lost) {
+        activeGames.delete(ctx.chatId);
+        await replyCtx.reply(`Game Over! ${won ? '🎉 You won!' : '💀 You lost!'} The word was *${g.word}*`);
+        return true;
+      }
+      
+      const participants = [...g.engine.participants.keys()];
+      g.currentTurn = participants[(participants.indexOf(g.currentTurn) + 1) % participants.length];
+      const newDisplay = g.word.split('').map(l => g.guessedLetters.has(l) ? l : '_').join(' ');
+      const next = await replyCtx.reply(
+        `Word: ${newDisplay}\nWrong: ${g.wrongGuesses}/${g.maxWrong}\nGuessed: ${[...g.guessedLetters].join(', ')}\n\nNext: @${normalizeId(g.currentTurn)}`,
+        { mentions: [g.currentTurn] }
+      );
+      pendingActions.set(ctx.chatId, next.key.id, { ...pendingActions.get(ctx.chatId, sent.key.id) });
+      return false;
     }
-  },
-  {
-    name: 'riddle',
-    description: 'Solve a riddle',
-    usage: '.riddle',
-    category: 'games',
-    execute: async (ctx) => {
-      const r = getRandomItem(riddles);
-      const sent = await ctx.reply(`*🧩 Riddle*\n\n${r.riddle}\n\nHint: ${r.hint}`);
-      pendingActions.set(ctx.chatId, sent.key.id, {
-        type: 'riddle',
-        userId: ctx.senderId,
-        match: (t) => t.toLowerCase().includes(r.answer),
-        handler: async (replyCtx) => {
-          await replyCtx.reply(`✅ Correct! The answer was ${r.answer}`);
-        }
-      });
+  });
+}
+
+async function startWordleGame(ctx, game) {
+  const wordList = ['APPLE', 'BEACH', 'BRAIN', 'CLOUD', 'DREAM', 'EARTH', 'FLAME', 'GHOST', 'HEART', 'IMAGE', 'JUICE', 'KNIFE', 'LEMON', 'MUSIC', 'NIGHT', 'OCEAN', 'PIANO', 'QUEEN', 'RIVER', 'SMILE', 'TIGER', 'VOICE', 'WATER', 'YOUTH', 'ZEBRA'];
+  game.word = wordList[Math.floor(Math.random() * wordList.length)];
+  game.attempts = 0;
+  game.maxAttempts = 6;
+  game.history = [];
+  game.currentTurn = [...game.engine.participants.keys()][0];
+
+  const sent = await ctx.reply(
+    `*🟩 Wordle*\n\n` +
+    `Guess the 5-letter word!\n` +
+    `Attempts: ${game.attempts}/${game.maxAttempts}\n\n` +
+    `👤 @${normalizeId(game.currentTurn)}'s turn!\n` +
+    `Type a 5-letter word or *stop*`,
+    { mentions: [game.currentTurn] }
+  );
+
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'wordle_guess',
+    data: { gameId: ctx.chatId },
+    timeout: 5 * 60 * 1000,
+    match: (text) => text.length === 5 || text.toUpperCase() === 'STOP',
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g || g.engine.phase !== 'playing') return true;
+      if (normalizeId(replyCtx.senderId) !== normalizeId(g.currentTurn)) return false;
+
+      const guess = replyCtx.text.toUpperCase().trim();
+      if (guess === 'STOP') { activeGames.delete(ctx.chatId); await replyCtx.reply('Game stopped.'); return true; }
+      if (guess.length !== 5) { await replyCtx.reply('Must be 5 letters!'); return false; }
+
+      g.attempts++;
+      let result = '';
+      for (let i = 0; i < 5; i++) {
+        if (guess[i] === g.word[i]) result += '🟩';
+        else if (g.word.includes(guess[i])) result += '🟨';
+        else result += '⬛';
+      }
+      g.history.push(`${guess}\n${result}`);
+
+      if (guess === g.word || g.attempts >= g.maxAttempts) {
+        activeGames.delete(ctx.chatId);
+        await replyCtx.reply(`${g.history.join('\n\n')}\n\n${guess === g.word ? '🎉 Correct!' : '💀 Failed!'} The word was *${g.word}*`);
+        return true;
+      }
+
+      const participants = [...g.engine.participants.keys()];
+      g.currentTurn = participants[(participants.indexOf(g.currentTurn) + 1) % participants.length];
+      const next = await replyCtx.reply(
+        `${g.history.join('\n\n')}\n\nAttempts: ${g.attempts}/${g.maxAttempts}\nNext: @${normalizeId(g.currentTurn)}`,
+        { mentions: [g.currentTurn] }
+      );
+      pendingActions.set(ctx.chatId, next.key.id, { ...pendingActions.get(ctx.chatId, sent.key.id) });
+      return false;
     }
-  },
+  });
+}
+
+async function startNumberGame(ctx, game) {
+  // ... existing code ...
+}
+
+async function startRiddleGame(ctx, game) {
+  let r;
+  try {
+    r = await ai.getOrFetchItem('riddles');
+  } catch (e) {
+    r = { riddle: "What has keys but no locks?", answer: "piano", hint: "Musical instrument" };
+  }
+  
+  game.currentRiddle = r;
+  game.currentTurn = [...game.engine.participants.keys()][0];
+
+  const sent = await ctx.reply(
+    `*🧩 Riddle*\n\n` +
+    `${r.riddle}\n\n` +
+    `👤 @${normalizeId(game.currentTurn)}'s turn!\n` +
+    `Type your answer or *stop*`,
+    { mentions: [game.currentTurn] }
+  );
+
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'riddle_guess',
+    data: { gameId: ctx.chatId },
+    timeout: 60000,
+    match: (text) => true,
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g || g.engine.phase !== 'playing') return true;
+      if (normalizeId(replyCtx.senderId) !== normalizeId(g.currentTurn)) return false;
+
+      const guess = replyCtx.text.toLowerCase().trim();
+      if (guess === 'stop') { activeGames.delete(ctx.chatId); await replyCtx.reply('Game stopped.'); return true; }
+      if (guess === 'hint') { await replyCtx.reply(`💡 Hint: ${g.currentRiddle.hint}`); return false; }
+
+      if (guess === g.currentRiddle.answer.toLowerCase()) {
+        activeGames.delete(ctx.chatId);
+        await replyCtx.reply(`🎉 Correct! @${normalizeId(replyCtx.senderId)} solved it! The answer was *${g.currentRiddle.answer}*`, { mentions: [replyCtx.senderId] });
+        return true;
+      }
+
+      const participants = [...g.engine.participants.keys()];
+      g.currentTurn = participants[(participants.indexOf(g.currentTurn) + 1) % participants.length];
+      const next = await replyCtx.reply(`❌ Wrong! Next turn: @${normalizeId(g.currentTurn)}`, { mentions: [g.currentTurn] });
+      pendingActions.set(ctx.chatId, next.key.id, { ...pendingActions.get(ctx.chatId, sent.key.id) });
+      return false;
+    }
+  });
+}
+
+async function startTruthDareGame(ctx, game, type) {
+  let content;
+  try {
+    content = await ai.getOrFetchItem(type);
+  } catch (e) {
+    content = type === 'truth' ? "What is your biggest secret?" : "Do 10 pushups!";
+  }
+  
+  game.currentTurn = [...game.engine.participants.keys()][0];
+  const sent = await ctx.reply(
+    `*🔥 ${type.toUpperCase()}*\n\n` +
+    `👤 @${normalizeId(game.currentTurn)}\n\n` +
+    `"${content}"\n\n` +
+    `Type *done* when finished or *stop*`,
+    { mentions: [game.currentTurn] }
+  );
+
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'td_done',
+    data: { gameId: ctx.chatId, type },
+    timeout: 5 * 60 * 1000,
+    match: (text) => ['DONE', 'STOP'].includes(text.toUpperCase().trim()),
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g || g.engine.phase !== 'playing') return true;
+      if (normalizeId(replyCtx.senderId) !== normalizeId(g.currentTurn)) return false;
+      
+      const text = replyCtx.text.toUpperCase().trim();
+      if (text === 'STOP') { activeGames.delete(ctx.chatId); await replyCtx.reply('Game stopped.'); return true; }
+      
+      const participants = [...g.engine.participants.keys()];
+      g.currentTurn = participants[(participants.indexOf(g.currentTurn) + 1) % participants.length];
+      
+      const nextType = Math.random() > 0.5 ? 'truth' : 'dare';
+      let nextContent;
+      try { nextContent = await ai.getOrFetchItem(nextType); } catch(e) { nextContent = "Tell a joke!"; }
+      
+      const next = await replyCtx.reply(
+        `✅ Nice!\n\n*Next Turn:* @${normalizeId(g.currentTurn)}\nType: *${nextType.toUpperCase()}*\n\n"${nextContent}"`,
+        { mentions: [g.currentTurn] }
+      );
+      pendingActions.set(ctx.chatId, next.key.id, { ...pendingActions.get(ctx.chatId, sent.key.id) });
+      return false;
+    }
+  });
+}
+
+async function startWYRGame(ctx, game) {
+  // ... existing code ...
+}
+
+async function startAkinatorGame(ctx, game) {
+  game.questionHistory = [];
+  game.answers = [];
+  game.step = 0;
+  game.maxSteps = 20;
+
+  const firstQuestion = await ai.generateAkinatorQuestion([], []);
+  game.questionHistory.push({ question: firstQuestion });
+  
+  const sent = await ctx.reply(
+    `*🧞 Akinator*\n\n` +
+    `Step ${game.step + 1}/${game.maxSteps}\n` +
+    `❓ ${firstQuestion}\n\n` +
+    `Reply with: *Yes*, *No*, *Maybe*, or *Stop*`,
+    { mentions: [...game.engine.participants.keys()] }
+  );
+
+  pendingActions.set(ctx.chatId, sent.key.id, {
+    type: 'akinator_answer',
+    data: { gameId: ctx.chatId },
+    timeout: 5 * 60 * 1000,
+    match: (text) => ['YES', 'Y', 'NO', 'N', 'MAYBE', 'IDK', 'STOP'].includes(text.toUpperCase().trim()),
+    handler: async (replyCtx) => {
+      const g = activeGames.get(ctx.chatId);
+      if (!g) return true;
+      const text = replyCtx.text.toUpperCase().trim();
+      if (text === 'STOP') { activeGames.delete(ctx.chatId); await replyCtx.reply('Game stopped.'); return true; }
+
+      g.answers.push(text.toLowerCase());
+      g.questionHistory[g.step].answer = text.toLowerCase();
+      g.step++;
+
+      if (g.step >= 5 && g.step % 5 === 0) {
+        const guess = await ai.analyzeAkinatorAnswers(g.answers, g.questionHistory);
+        const guessSent = await replyCtx.reply(`🤔 I'm thinking of... *${guess}*?\n\nIs this correct? (Yes/No/Stop)`);
+        
+        pendingActions.set(ctx.chatId, guessSent.key.id, {
+            type: 'akinator_guess',
+            data: { gameId: ctx.chatId, guess },
+            timeout: 60000,
+            match: (t) => ['YES', 'Y', 'NO', 'N', 'STOP'].includes(t.toUpperCase().trim()),
+            handler: async (guessCtx) => {
+                const finalChoice = guessCtx.text.toUpperCase().trim();
+                if (finalChoice === 'STOP') { activeGames.delete(ctx.chatId); return true; }
+                if (finalChoice === 'YES' || finalChoice === 'Y') {
+                    activeGames.delete(ctx.chatId);
+                    await guessCtx.reply(`🎉 I knew it! I am the best! 🧞`);
+                    return true;
+                }
+                if (g.step >= g.maxSteps) {
+                    activeGames.delete(ctx.chatId);
+                    await guessCtx.reply(`💀 I give up! You win! What were you thinking of?`);
+                    return true;
+                }
+                // Continue to next question
+                const nextQ = await ai.generateAkinatorQuestion(g.questionHistory, g.answers);
+                g.questionHistory.push({ question: nextQ });
+                const nextSent = await guessCtx.reply(`Step ${g.step + 1}/${g.maxSteps}\n❓ ${nextQ}`);
+                pendingActions.set(ctx.chatId, nextSent.key.id, { ...pendingActions.get(ctx.chatId, sent.key.id) });
+                return true;
+            }
+        });
+        return true;
+      }
+
+      const nextQ = await ai.generateAkinatorQuestion(g.questionHistory, g.answers);
+      g.questionHistory.push({ question: nextQ });
+      const nextS = await replyCtx.reply(`Step ${g.step + 1}/${g.maxSteps}\n❓ ${nextQ}`);
+      pendingActions.set(ctx.chatId, nextS.key.id, { ...pendingActions.get(ctx.chatId, sent.key.id) });
+      return false;
+    }
+  });
+}
+
+const commands = [
+  // ... existing ...
   {
-    name: 'capital',
-    description: 'Guess the capital city',
-    usage: '.capital',
-    category: 'games',
+    name: 'akinator',
     execute: async (ctx) => {
-      const c = getRandomItem(capitals);
-      const sent = await ctx.reply(`*🌍 Capital Quiz*\n\nWhat is the capital of *${c.country}*?`);
-      pendingActions.set(ctx.chatId, sent.key.id, {
-        type: 'capital',
-        userId: ctx.senderId,
-        match: (t) => t.toLowerCase().includes(c.capital.toLowerCase()),
-        handler: async (replyCtx) => {
-          await replyCtx.reply(`✅ Correct! It's ${c.capital}`);
-        }
-      });
+      if (activeGames.has(ctx.chatId)) return ctx.reply('Game running!');
+      const game = {};
+      game.engine = new GameEngine(ctx, { gameType: 'akinator', maxPlayers: 1, onStart: () => startAkinatorGame(ctx, game) });
+      activeGames.set(ctx.chatId, game);
+      await game.engine.startJoinPhase();
     }
   }
 ];
+
+export default { name: 'games', commands };
+
+
