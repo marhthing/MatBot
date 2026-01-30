@@ -5,7 +5,11 @@ import logger from './logger.js';
 const STORAGE_DIR = path.join(process.cwd(), 'storage');
 const AI_CACHE_PATH = path.join(STORAGE_DIR, 'ai_cache.json');
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+const GROQ_TTS_URL = 'https://api.groq.com/openai/v1/audio/speech';
 const MODEL = 'llama-3.3-70b-versatile';
+const STT_MODEL = 'whisper-large-v3';
+const TTS_MODEL = 'canopylabs/orpheus-v1-english';
 
 const rateLimiter = {
   lastRequest: 0,
@@ -347,6 +351,73 @@ Previous questions asked: ${questionHistory.map(q => q.question).join('; ') || '
   }
 }
 
+async function speechToText(audioBuffer, fileName) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+
+  await checkRateLimit();
+
+  const formData = new FormData();
+  const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+  formData.append('file', blob, fileName || 'audio.mp3');
+  formData.append('model', STT_MODEL);
+
+  try {
+    const response = await fetch(GROQ_STT_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Groq STT error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.text || '';
+  } catch (error) {
+    logger.error('Groq STT failed:', error);
+    throw error;
+  }
+}
+
+async function textToSpeech(text, voice = 'hannah') {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+
+  await checkRateLimit();
+
+  try {
+    const response = await fetch(GROQ_TTS_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: TTS_MODEL,
+        input: text,
+        voice: voice,
+        response_format: 'wav'
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Groq TTS error: ${response.status} - ${errorText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return Buffer.from(buffer);
+  } catch (error) {
+    logger.error('Groq TTS failed:', error);
+    throw error;
+  }
+}
+
 export default {
   askAI,
   callGroq,
@@ -357,6 +428,8 @@ export default {
   ensureCacheHasItems,
   analyzeAkinatorAnswers,
   generateAkinatorQuestion,
+  speechToText,
+  textToSpeech,
   loadCache,
   saveCache
 };
@@ -370,5 +443,7 @@ export {
   getCacheCount,
   ensureCacheHasItems,
   analyzeAkinatorAnswers,
-  generateAkinatorQuestion
+  generateAkinatorQuestion,
+  speechToText,
+  textToSpeech
 };

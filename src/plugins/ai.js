@@ -9,7 +9,7 @@ export default {
   commands: [
     {
       name: 'ai',
-      aliases: ['ask', 'gpt', 'chat'],
+      aliases: ['gpt', 'chat'],
       description: 'Ask the AI anything',
       usage: '.ai <your question>',
       category: 'ai',
@@ -19,9 +19,40 @@ export default {
       cooldown: 5,
       async execute(ctx) {
         try {
-          const question = ctx.args.join(' ');
-          
+          let question = ctx.args.join(' ');
+          let quotedMsg = null;
           if (!question) {
+            quotedMsg = ctx.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage ||
+                        ctx.raw?.message?.imageMessage?.contextInfo?.quotedMessage ||
+                        ctx.raw?.message?.videoMessage?.contextInfo?.quotedMessage;
+            if (quotedMsg) {
+              question = quotedMsg.conversation ||
+                         quotedMsg.extendedTextMessage?.text ||
+                         quotedMsg.imageMessage?.caption ||
+                         quotedMsg.videoMessage?.caption ||
+                         quotedMsg.documentMessage?.caption ||
+                         quotedMsg.buttonsMessage?.contentText ||
+                         quotedMsg.listMessage?.description || '';
+            }
+          } else {
+            // If both args and quoted, combine them for context
+            quotedMsg = ctx.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage ||
+                        ctx.raw?.message?.imageMessage?.contextInfo?.quotedMessage ||
+                        ctx.raw?.message?.videoMessage?.contextInfo?.quotedMessage;
+          }
+          // If both question and quotedMsg, combine for AI context
+          if (question && quotedMsg) {
+            let quotedText = quotedMsg.conversation ||
+                             quotedMsg.extendedTextMessage?.text ||
+                             quotedMsg.imageMessage?.caption ||
+                             quotedMsg.videoMessage?.caption ||
+                             quotedMsg.documentMessage?.caption ||
+                             quotedMsg.buttonsMessage?.contentText ||
+                             quotedMsg.listMessage?.description || '';
+            question = `User asked: "${question}"
+Quoted message: "${quotedText}"`;
+          }
+          if (!question || !question.trim()) {
             return await ctx.reply('Please ask me something!\n\nUsage: .ai What is the meaning of life?');
           }
           
