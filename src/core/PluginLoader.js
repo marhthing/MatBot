@@ -69,6 +69,12 @@ export default class PluginLoader {
         }
       }
 
+      // Register onMessage handler if present
+      if (typeof plugin.onMessage === 'function') {
+        this.commandRegistry.registerMessageHandler(plugin.onMessage.bind(plugin));
+        this.logger.info(`Registered onMessage handler for plugin: ${plugin.name}`);
+      }
+
       this.plugins.set(plugin.name, {
         ...plugin,
         filename,
