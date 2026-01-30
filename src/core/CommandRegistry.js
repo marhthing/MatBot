@@ -120,18 +120,6 @@ export default class CommandRegistry {
     let allow = false;
     // Helper to normalize JIDs to digits only (for robust allow-list matching)
     const normalizeJid = jid => (jid || '').split('@')[0].replace(/\D/g, '');
-    // DEBUG: Log all JIDs being checked for allow-list
-    this.logger.info({
-      userJid,
-      isOwner,
-      isFromMe,
-      command: messageContext.command,
-      allowedUsers: command.allowedUsers,
-      allowedGroups: command.allowedGroups,
-      chatId: messageContext.chatId,
-      rawJid: messageContext.raw?.key?.remoteJid,
-      remoteJidAlt: messageContext.raw?.key?.remoteJidAlt
-    }, '[DEBUG] Checking allow-list for command');
     if (isOwner || isFromMe) {
       allow = true;
     } else if (messageContext.platform === 'telegram') {
@@ -156,12 +144,6 @@ export default class CommandRegistry {
           }
           // Add normalized digit-only forms
           const normalizedJids = userJidsToCheck.map(normalizeJid);
-          // DEBUG: Log all JIDs being checked
-          this.logger.info({
-            userJidsToCheck,
-            normalizedJids,
-            allowedList: allowed[command.name]
-          }, '[DEBUG] Allow-list JID comparison');
           // Check if any allowed JID (raw or normalized) matches
           if (Array.isArray(allowed[command.name])) {
             for (const allowedJid of allowed[command.name]) {
@@ -192,7 +174,6 @@ export default class CommandRegistry {
       }
     }
     if (!allow) {
-      this.logger.info('[DEBUG] Command not allowed for this user/group.');
       return;
     }
     // --- END LOGIC FIX ---
