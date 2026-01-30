@@ -12,58 +12,111 @@ export default {
       usage: '.enhance (reply to image)',
       category: 'media',
       async execute(ctx) {
-        function extractImage(ctx) {
+        function extractMedia(ctx) {
           const extMsg = ctx.raw?.message?.extendedTextMessage;
           const quotedMsg = extMsg?.contextInfo?.quotedMessage;
           if (quotedMsg && quotedMsg.imageMessage) {
-            const reconstructedMsg = {
-              key: {
-                remoteJid: ctx.chatId,
-                id: extMsg.contextInfo.stanzaId,
-                participant: extMsg.contextInfo.participant,
-                fromMe: false
-              },
-              message: {
-                imageMessage: quotedMsg.imageMessage
+            return {
+              type: 'image',
+              msg: {
+                key: {
+                  remoteJid: ctx.chatId,
+                  id: extMsg.contextInfo.stanzaId,
+                  participant: extMsg.contextInfo.participant,
+                  fromMe: false
+                },
+                message: { imageMessage: quotedMsg.imageMessage }
               }
             };
-            return reconstructedMsg;
+          }
+          if (quotedMsg && quotedMsg.videoMessage) {
+            return {
+              type: 'video',
+              msg: {
+                key: {
+                  remoteJid: ctx.chatId,
+                  id: extMsg.contextInfo.stanzaId,
+                  participant: extMsg.contextInfo.participant,
+                  fromMe: false
+                },
+                message: { videoMessage: quotedMsg.videoMessage }
+              }
+            };
           }
           return null;
         }
-        const imageMsg = extractImage(ctx);
-        if (!imageMsg) {
-          return await ctx.reply('❌ Please reply to an image to enhance.');
+        const media = extractMedia(ctx);
+        if (!media) {
+          return await ctx.reply('❌ Please reply to an image or video to enhance.');
         }
         let buffer;
         try {
-          buffer = await ctx._adapter.downloadMedia({ raw: imageMsg });
+          buffer = await ctx._adapter.downloadMedia({ raw: media.msg });
           if (!buffer || buffer.length === 0) throw new Error('Empty buffer');
         } catch (e) {
-          return await ctx.reply('❌ Failed to download image.');
+          return await ctx.reply('❌ Failed to download media.');
         }
-        let sharp;
-        try {
-          sharp = (await import('sharp')).default;
-        } catch (e) {
-          return await ctx.reply('❌ sharp is not installed. Please run: npm install sharp');
-        }
-        try {
-          // Upscale by 3x, sharpen, and increase contrast/brightness
-          const img = sharp(buffer);
-          const metadata = await img.metadata();
-          const width = metadata.width ? Math.round(metadata.width * 3) : undefined;
-          const height = metadata.height ? Math.round(metadata.height * 3) : undefined;
-          let enhancedBuffer = await img
-            .resize(width, height, { kernel: sharp.kernel.lanczos3 })
-            .sharpen(3, 1.5, 0.5)
-            .modulate({ brightness: 1.08, contrast: 1.15 })
-            .toBuffer();
-          if (shouldReact()) await ctx.react('✅');
-          await ctx._adapter.sendMedia(ctx.chatId, enhancedBuffer, { type: 'image' });
-        } catch (e) {
-          if (shouldReact()) await ctx.react('❌');
-          await ctx.reply('❌ Failed to enhance image.');
+        if (media.type === 'image') {
+          let sharp;
+          try {
+            sharp = (await import('sharp')).default;
+          } catch (e) {
+            return await ctx.reply('❌ sharp is not installed. Please run: npm install sharp');
+          }
+          try {
+            // Upscale by 3x, sharpen, and increase contrast/brightness
+            const img = sharp(buffer);
+            const metadata = await img.metadata();
+            const width = metadata.width ? Math.round(metadata.width * 3) : undefined;
+            const height = metadata.height ? Math.round(metadata.height * 3) : undefined;
+            let enhancedBuffer = await img
+              .resize(width, height, { kernel: sharp.kernel.lanczos3 })
+              .sharpen(3, 1.5, 0.5)
+              .modulate({ brightness: 1.08, contrast: 1.15 })
+              .toBuffer();
+            if (shouldReact()) await ctx.react('✅');
+            await ctx._adapter.sendMedia(ctx.chatId, enhancedBuffer, { type: 'image' });
+          } catch (e) {
+            if (shouldReact()) await ctx.react('❌');
+            await ctx.reply('❌ Failed to enhance image.');
+          }
+        } else if (media.type === 'video') {
+          let ffmpegPath, ffmpeg;
+          try {
+            ffmpegPath = (await import('@ffmpeg-installer/ffmpeg')).path;
+            ffmpeg = (await import('fluent-ffmpeg')).default;
+          } catch (e) {
+            return await ctx.reply('❌ ffmpeg and fluent-ffmpeg are not installed. Please run: npm install @ffmpeg-installer/ffmpeg fluent-ffmpeg');
+          }
+          const tmp = await import('tmp');
+          const fs = await import('fs');
+          const { promisify } = await import('util');
+          const writeFile = promisify(fs.writeFile);
+          const readFile = promisify(fs.readFile);
+          const unlink = promisify(fs.unlink);
+          const tmpIn = tmp.tmpNameSync({ postfix: '.mp4' });
+          const tmpOut = tmp.tmpNameSync({ postfix: '.mp4' });
+          try {
+            await writeFile(tmpIn, buffer);
+            await new Promise((resolve, reject) => {
+              ffmpeg(tmpIn)
+                .setFfmpegPath(ffmpegPath)
+                .videoFilters('scale=iw*2:ih*2:flags=lanczos,unsharp=5:5:1.0:5:5:0.0')
+                .outputOptions('-movflags', 'faststart', '-an')
+                .save(tmpOut)
+                .on('end', resolve)
+                .on('error', (err) => reject(err));
+            });
+            const vidBuffer = await readFile(tmpOut);
+            if (shouldReact()) await ctx.react('✅');
+            await ctx._adapter.sendMedia(ctx.chatId, vidBuffer, { type: 'video' });
+          } catch (e) {
+            if (shouldReact()) await ctx.react('❌');
+            await ctx.reply(`❌ Failed to enhance video.\nError: ${e?.message || e}`);
+          } finally {
+            try { await unlink(tmpIn); } catch {}
+            try { await unlink(tmpOut); } catch {}
+          }
         }
       }
     }
