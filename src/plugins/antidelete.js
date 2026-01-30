@@ -402,8 +402,11 @@ export default {
 
         // Send media as quoted reply
         if (mediaType && ['image', 'video', 'audio', 'document', 'sticker', 'ptt'].includes(mediaType)) {
+          let buffer = null;
+          
+          // First try: Download from WhatsApp servers
           try {
-            const buffer = await downloadMediaMessage(
+            buffer = await downloadMediaMessage(
               originalMessage,
               'buffer',
               {},
@@ -412,8 +415,24 @@ export default {
                 reuploadRequest: whatsappAdapter.client.updateMediaMessage 
               }
             );
-            
-            if (buffer) {
+          } catch (downloadErr) {
+            // Download failed, try disk fallback
+          }
+          
+          // Second try: Load from disk storage (saved during memory cleanup)
+          if (!buffer) {
+            try {
+              buffer = memoryStore.getMediaFromDisk('whatsapp', chatId, deletedMessageId);
+              if (buffer) {
+                console.log('[antidelete] Recovered media from disk storage');
+              }
+            } catch (diskErr) {
+              // Disk read failed too
+            }
+          }
+          
+          if (buffer) {
+            try {
               const messageType = `${mediaType}Message`;
               const mimetype = actualMsg[messageType]?.mimetype || 'application/octet-stream';
               
@@ -429,9 +448,11 @@ export default {
                   quoted: sentNotif
                 }
               );
+            } catch (sendErr) {
+              console.error('[antidelete] Failed to send recovered media:', sendErr.message);
             }
-          } catch (mediaError) {
-            console.error('[antidelete] Failed to download deleted media:', mediaError.message);
+          } else {
+            console.error('[antidelete] Failed to recover media: not available from server or disk');
           }
         }
         
@@ -544,8 +565,11 @@ export default {
             }
             // Send media as quoted reply
             if (mediaType && ['image', 'video', 'audio', 'document', 'sticker', 'ptt'].includes(mediaType)) {
+              let buffer = null;
+              
+              // First try: Download from WhatsApp servers
               try {
-                const buffer = await downloadMediaMessage(
+                buffer = await downloadMediaMessage(
                   msg,
                   'buffer',
                   {},
@@ -554,7 +578,24 @@ export default {
                     reuploadRequest: whatsappAdapter.client.updateMediaMessage 
                   }
                 );
-                if (buffer) {
+              } catch (downloadErr) {
+                // Download failed, try disk fallback
+              }
+              
+              // Second try: Load from disk storage (saved during memory cleanup)
+              if (!buffer) {
+                try {
+                  buffer = memoryStore.getMediaFromDisk('whatsapp', chatId, deletedMessageId);
+                  if (buffer) {
+                    console.log('[statusantidelete] Recovered media from disk storage');
+                  }
+                } catch (diskErr) {
+                  // Disk read failed too
+                }
+              }
+              
+              if (buffer) {
+                try {
                   const messageType = `${mediaType}Message`;
                   const mimetype = msg.message[messageType]?.mimetype || 'application/octet-stream';
                   await whatsappAdapter.client.sendMessage(
@@ -569,9 +610,11 @@ export default {
                       quoted: sentNotif
                     }
                   );
+                } catch (sendErr) {
+                  console.error('[statusantidelete] Failed to send recovered media:', sendErr.message);
                 }
-              } catch (mediaError) {
-                console.error('[statusantidelete] Failed to download deleted media:', mediaError.message);
+              } else {
+                console.error('[statusantidelete] Failed to recover media: not available from server or disk');
               }
             }
             continue;

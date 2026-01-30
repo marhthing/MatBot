@@ -97,6 +97,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
     });
 
     this.setupEventHandlers(saveCreds);
+    this._setupMediaDownloader();
   }
 
   async connectWithAuth(sessionPath) {
@@ -121,6 +122,27 @@ export default class WhatsAppAdapter extends BaseAdapter {
     });
 
     this.setupEventHandlers(saveCreds, sessionPath);
+    this._setupMediaDownloader();
+  }
+
+  // Setup media downloader for memoryStore to use during cleanup
+  _setupMediaDownloader() {
+    memoryStore.setMediaDownloader(async (msg) => {
+      try {
+        const buffer = await downloadMediaMessage(
+          msg,
+          'buffer',
+          {},
+          { 
+            logger: this.baileysLogger,
+            reuploadRequest: this.client.updateMediaMessage 
+          }
+        );
+        return buffer;
+      } catch (err) {
+        return null;
+      }
+    });
   }
 
   setupEventHandlers(saveCreds, sessionPath) {

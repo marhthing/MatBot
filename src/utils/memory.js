@@ -5,14 +5,24 @@ import fs from 'fs';
 import path from 'path';
 
 const STORAGE_DIR = path.join(process.cwd(), 'storage', 'messages');
+const MEDIA_DIR = path.join(process.cwd(), 'storage', 'media');
 
 class MemoryStore {
   constructor() {
     // Structure: { chatId: { messageId: { ...messageData } } }
     this.messages = {};
+    this.mediaDownloader = null; // Will be set by adapter
     if (!fs.existsSync(STORAGE_DIR)) {
       fs.mkdirSync(STORAGE_DIR, { recursive: true });
     }
+    if (!fs.existsSync(MEDIA_DIR)) {
+      fs.mkdirSync(MEDIA_DIR, { recursive: true });
+    }
+  }
+
+  // Set the media downloader function (called by WhatsAppAdapter)
+  setMediaDownloader(downloaderFn) {
+    this.mediaDownloader = downloaderFn;
   }
 
   saveMessage(platform, chatId, messageId, messageData) {
@@ -46,6 +56,43 @@ class MemoryStore {
     } catch (err) {
       // Silent fail for disk storage
     }
+  }
+
+  // Save media file to disk and return the path
+  async saveMediaToDisk(platform, chatId, messageId, buffer, extension = 'bin') {
+    try {
+      const safeChatId = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+      const mediaDir = path.join(MEDIA_DIR, platform, safeChatId);
+      
+      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+      
+      const mediaPath = path.join(mediaDir, `${messageId}.${extension}`);
+      fs.writeFileSync(mediaPath, buffer);
+      return mediaPath;
+    } catch (err) {
+      console.error('[MemoryStore] Failed to save media:', err.message);
+      return null;
+    }
+  }
+
+  // Get saved media from disk
+  getMediaFromDisk(platform, chatId, messageId) {
+    try {
+      const safeChatId = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+      const mediaDir = path.join(MEDIA_DIR, platform, safeChatId);
+      
+      if (!fs.existsSync(mediaDir)) return null;
+      
+      // Find the media file (could have different extensions)
+      const files = fs.readdirSync(mediaDir);
+      const mediaFile = files.find(f => f.startsWith(messageId + '.'));
+      
+      if (mediaFile) {
+        const mediaPath = path.join(mediaDir, mediaFile);
+        return fs.readFileSync(mediaPath);
+      }
+    } catch (err) {}
+    return null;
   }
 
   // Map-based getMessage for compatibility with Baileys getMessage
@@ -90,10 +137,37 @@ class MemoryStore {
     // Note: We don't delete from disk immediately to allow recovery even if memory is cleared
   }
 
+  // Helper to detect media type from message
+  _getMediaInfo(msg) {
+    const actualMsg = msg?.message?.viewOnceMessage?.message ||
+                      msg?.message?.viewOnceMessageV2?.message ||
+                      msg?.message?.ephemeralMessage?.message ||
+                      msg?.message;
+    
+    if (!actualMsg) return null;
+    
+    const mediaTypes = {
+      imageMessage: 'jpg',
+      videoMessage: 'mp4',
+      audioMessage: 'mp3',
+      documentMessage: 'bin',
+      stickerMessage: 'webp',
+      pttMessage: 'ogg'
+    };
+    
+    for (const [type, ext] of Object.entries(mediaTypes)) {
+      if (actualMsg[type]) {
+        return { type, extension: actualMsg[type].mimetype?.split('/')[1] || ext };
+      }
+    }
+    return null;
+  }
+
   /**
    * Smart memory management: prune old/unimportant messages.
    * Keeps status/broadcast for 24h, others for 3 days.
    * If memory is low, aggressively move older messages to disk and clear from RAM.
+   * NEW: Downloads and saves media when mirroring to disk.
    */
   async smartCleanup({ minFreeMB = 200, minFreePercent = 15 } = {}) {
     const os = await import('os');
@@ -144,6 +218,7 @@ class MemoryStore {
     const isLowMemory = freeMB < minFreeMB || freePercent < minFreePercent;
     let prunedMem = 0;
     let prunedDisk = 0;
+    let mediaSaved = 0;
 
     // 1. Memory Cleanup
     for (const platform of Object.keys(this.messages)) {
@@ -156,37 +231,59 @@ class MemoryStore {
           .map(([id, msg]) => ({ id, ...msg }))
           .sort((a, b) => (b._savedAt || 0) - (a._savedAt || 0));
 
-        messages.forEach((msg, index) => {
+        for (let index = 0; index < messages.length; index++) {
+          const msg = messages[index];
           const age = now - (msg._savedAt || now);
           
           // Case 1: Past absolute retention period (Delete forever)
           if (age > retentionPeriod) {
             delete this.messages[platform][chatId][msg.id];
             prunedMem++;
-            return;
+            continue;
           }
 
-          // Case 2: Memory is low or message is old (Offload to disk only)
-          // Keep only top 100 most recent messages in RAM if memory is tight
+          // Case 2: Memory is low and this is an older message (beyond top 100)
+          // Mirror to storage with full media before removing from RAM
           if (isLowMemory && index > 100) {
+            // Check if message has media and we have a downloader
+            const mediaInfo = this._getMediaInfo(msg);
+            if (mediaInfo && this.mediaDownloader && !msg._mediaSaved) {
+              try {
+                // Download the media now before removing from memory
+                const buffer = await this.mediaDownloader(msg);
+                if (buffer) {
+                  const savedPath = await this.saveMediaToDisk(platform, chatId, msg.id, buffer, mediaInfo.extension);
+                  if (savedPath) {
+                    // Update the disk JSON to mark media as saved
+                    msg._mediaSaved = true;
+                    msg._mediaPath = savedPath;
+                    this.saveToDisk(platform, chatId, msg.id, msg);
+                    mediaSaved++;
+                  }
+                }
+              } catch (err) {
+                // Media download failed, continue anyway
+              }
+            }
+            
             delete this.messages[platform][chatId][msg.id];
             prunedMem++;
           }
-        });
+        }
       }
     }
 
-    // 2. Disk Cleanup (Recursive)
-    const cleanDir = (dir) => {
+    // 2. Disk Cleanup (Recursive) - also cleans media
+    const cleanDir = (dir, isMediaDir = false) => {
       if (!fs.existsSync(dir)) return;
       const files = fs.readdirSync(dir);
       for (const file of files) {
         const fullPath = path.join(dir, file);
         const stats = fs.statSync(fullPath);
         if (stats.isDirectory()) {
-          cleanDir(fullPath);
+          cleanDir(fullPath, isMediaDir);
           if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath);
-        } else if (file.endsWith('.json')) {
+        } else if (file.endsWith('.json') || isMediaDir) {
           const isStatus = dir.includes('_status') || dir.includes('_broadcast');
           const retentionPeriod = isStatus ? MS_PER_DAY : 3 * MS_PER_DAY;
           if (now - stats.mtimeMs > retentionPeriod) {
@@ -197,9 +294,10 @@ class MemoryStore {
       }
     };
     cleanDir(STORAGE_DIR);
+    cleanDir(MEDIA_DIR, true);
 
-    if (prunedMem > 0 || prunedDisk > 0) {
-      console.log(`[MemoryStore] Cleanup: Pruned ${prunedMem} from memory, ${prunedDisk} from disk. Free: ${freeMB.toFixed(2)}MB (${freePercent.toFixed(2)}%)`);
+    if (prunedMem > 0 || prunedDisk > 0 || mediaSaved > 0) {
+      console.log(`[MemoryStore] Cleanup: Pruned ${prunedMem} from memory, ${prunedDisk} from disk, saved ${mediaSaved} media files. Free: ${freeMB.toFixed(2)}MB (${freePercent.toFixed(2)}%)`);
     }
   }
 }
