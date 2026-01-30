@@ -116,50 +116,86 @@ export default class CommandRegistry {
     const isOwner = messageContext.isOwner;
     const isFromMe = messageContext.isFromMe;
 
-    // --- NEW LOGIC ---
-    // For WhatsApp, only allow execution if fromMe, unless exceptions apply
-    // For Telegram, allow all users by default (except for owner/admin/group restrictions)
-    let allow = messageContext.platform === 'telegram' ? true : isFromMe;
-
-    // IMPORTANT: Commands should ALWAYS be available to the owner
-    // and from the bot itself (fromMe) in any chat.
+    // --- LOGIC FIX: allow permitted users/groups from storage.json even if isFromMe is false ---
+    let allow = false;
+    // Helper to normalize JIDs to digits only (for robust allow-list matching)
+    const normalizeJid = jid => (jid || '').split('@')[0].replace(/\D/g, '');
+    // DEBUG: Log all JIDs being checked for allow-list
+    this.logger.info({
+      userJid,
+      isOwner,
+      isFromMe,
+      command: messageContext.command,
+      allowedUsers: command.allowedUsers,
+      allowedGroups: command.allowedGroups,
+      chatId: messageContext.chatId,
+      rawJid: messageContext.raw?.key?.remoteJid,
+      remoteJidAlt: messageContext.raw?.key?.remoteJidAlt
+    }, '[DEBUG] Checking allow-list for command');
     if (isOwner || isFromMe) {
       allow = true;
-    }
-    // Load allowed users/groups from storage.json if present
-    try {
-      const fs = await import('fs');
-      const path = await import('path');
-      const storagePath = path.resolve('storage', 'storage.json');
-      if (fs.existsSync(storagePath)) {
-        const storage = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
-        const allowed = storage.allowedCommands || {};
-        // Check both senderId and remoteJidAlt (if present)
-        const userJidsToCheck = [userJid];
-        if (messageContext.raw?.key?.remoteJidAlt) {
-          userJidsToCheck.push(messageContext.raw.key.remoteJidAlt);
+    } else if (messageContext.platform === 'telegram') {
+      allow = true;
+    } else {
+      // Check allowed users/groups from storage.json
+      try {
+        const fs = await import('fs');
+        const path = await import('path');
+        const storagePath = path.resolve('storage', 'storage.json');
+        if (fs.existsSync(storagePath)) {
+          const storage = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
+          const allowed = storage.allowedCommands || {};
+          // Collect all possible JIDs to check (raw, alt, chatId, and normalized forms)
+          const userJidsToCheck = [userJid];
+          if (messageContext.raw?.key?.remoteJidAlt) {
+            userJidsToCheck.push(messageContext.raw.key.remoteJidAlt);
+          }
+          // Always include chatId for allow-list checks (not just for groups)
+          if (messageContext.chatId) {
+            userJidsToCheck.push(messageContext.chatId);
+          }
+          // Add normalized digit-only forms
+          const normalizedJids = userJidsToCheck.map(normalizeJid);
+          // DEBUG: Log all JIDs being checked
+          this.logger.info({
+            userJidsToCheck,
+            normalizedJids,
+            allowedList: allowed[command.name]
+          }, '[DEBUG] Allow-list JID comparison');
+          // Check if any allowed JID (raw or normalized) matches
+          if (Array.isArray(allowed[command.name])) {
+            for (const allowedJid of allowed[command.name]) {
+              if (
+                userJidsToCheck.includes(allowedJid) ||
+                normalizedJids.includes(normalizeJid(allowedJid))
+              ) {
+                allow = true;
+                break;
+              }
+            }
+          }
         }
-        // If in group, also check if the group JID is allowed for this command
-        if (messageContext.isGroup) {
-          userJidsToCheck.push(messageContext.chatId);
-        }
-        if (Array.isArray(allowed[command.name]) && allowed[command.name].some(jid => userJidsToCheck.includes(jid))) {
-          allow = true;
-        }
+      } catch {}
+      // Exception: allow if command.allowedUsers includes this user (raw or normalized)
+      if (
+        Array.isArray(command.allowedUsers) &&
+        (command.allowedUsers.includes(userJid) || command.allowedUsers.map(normalizeJid).includes(normalizeJid(userJid)))
+      ) {
+        allow = true;
       }
-    } catch {}
-    // Exception: allow if command.allowedUsers includes this user
-    if (Array.isArray(command.allowedUsers) && command.allowedUsers.includes(userJid)) {
-      allow = true;
-    }
-    // Exception: allow if command.allowedGroups includes this group
-    if (Array.isArray(command.allowedGroups) && command.allowedGroups.includes(messageContext.chatId)) {
-      allow = true;
+      // Exception: allow if command.allowedGroups includes this group (raw or normalized)
+      if (
+        Array.isArray(command.allowedGroups) &&
+        (command.allowedGroups.includes(messageContext.chatId) || command.allowedGroups.map(normalizeJid).includes(normalizeJid(messageContext.chatId)))
+      ) {
+        allow = true;
+      }
     }
     if (!allow) {
+      this.logger.info('[DEBUG] Command not allowed for this user/group.');
       return;
     }
-    // --- END NEW LOGIC ---
+    // --- END LOGIC FIX ---
 
     // Check permissions for non-owners
     if (!isOwner) {
