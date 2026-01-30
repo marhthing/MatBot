@@ -379,10 +379,18 @@ export default class WhatsAppAdapter extends BaseAdapter {
       args = parts.slice(1);
     }
 
-    const isOwner = normalizedSenderForOwnerCheck.split('@')[0] === this.config.ownerNumber || 
-                    normalizedSenderForOwnerCheck === this.config.ownerNumber || 
-                    normalizedSenderForOwnerCheck === jidNormalizedUser(this.config.ownerNumber + '@s.whatsapp.net') ||
-                    senderId.split('@')[0] === this.config.ownerNumber;
+    // --- Robust owner detection: always remove WhatsApp suffixes like :90 ---
+    let trueSenderId = senderId;
+    if (msg.key.fromMe && this.client?.user?.id) {
+      trueSenderId = this.client.user.id;
+    }
+    // Remove WhatsApp suffixes like :90
+    const cleanSender = trueSenderId.split(':')[0];
+    // Compare only digits for owner check
+    const normalizeNumber = num => (num || '').replace(/[^\d]/g, '');
+    const senderNum = normalizeNumber(cleanSender.split('@')[0]);
+    const ownerNum = normalizeNumber(this.config.ownerNumber);
+    const isOwner = senderNum === ownerNum;
 
     let isAdmin = false;
     if (isGroup) {
@@ -490,7 +498,7 @@ export default class WhatsAppAdapter extends BaseAdapter {
       messageId: msg.key.id,
       messageKey: msg.key,
       chatId,
-      senderId,
+      senderId: cleanSender,
       senderName: msg.pushName || senderId.split('@')[0],
       text,
       command,
