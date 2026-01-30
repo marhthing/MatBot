@@ -78,6 +78,17 @@ export default class MessageContext {
   }
 
   /**
+   * Edit a message (if supported by platform)
+   */
+  async edit(newText, options = {}) {
+    if (typeof this._adapter.editMessage === 'function') {
+      return await this._adapter.editMessage(this.chatId, this.messageId, newText, options);
+    } else {
+      throw new Error('Edit not supported for this platform');
+    }
+  }
+
+  /**
    * Send media (image, video, audio, document)
    */
   async sendMedia(media, options = {}) {

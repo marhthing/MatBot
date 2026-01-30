@@ -120,6 +120,12 @@ export default class CommandRegistry {
     // For WhatsApp, only allow execution if fromMe, unless exceptions apply
     // For Telegram, allow all users by default (except for owner/admin/group restrictions)
     let allow = messageContext.platform === 'telegram' ? true : isFromMe;
+
+    // IMPORTANT: Commands should ALWAYS be available to the owner
+    // and from the bot itself (fromMe) in any chat.
+    if (isOwner || isFromMe) {
+      allow = true;
+    }
     // Load allowed users/groups from storage.json if present
     try {
       const fs = await import('fs');

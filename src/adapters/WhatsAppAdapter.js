@@ -642,4 +642,13 @@ export default class WhatsAppAdapter extends BaseAdapter {
       // Ignore presence update errors
     }
   }
+
+  async editMessage(chatId, messageId, newText, options = {}) {
+    // WhatsApp now supports editing messages sent by the bot
+    try {
+      await this.client.editMessage(chatId, { id: messageId, remoteJid: chatId, fromMe: true }, { text: newText });
+    } catch (e) {
+      throw new Error('Failed to edit message: ' + e.message);
+    }
+  }
 }

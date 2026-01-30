@@ -19,12 +19,16 @@ export default {
         // Send initial message
         const sentMsg = await ctx.reply('🏓 Pong!');
         const latency = Date.now() - start;
-        // Edit the original message with latency (remove platform info)
-        if (ctx._adapter.editMessage) {
-          await ctx._adapter.editMessage(ctx.chatId, sentMsg.id || sentMsg.key?.id, `🏓 Pong!\n⏱️ Latency: ${latency}ms`);
-        } else {
-          // Fallback: send a new message and optionally delete the old one
-          await ctx.send(`🏓 Pong!\n⏱️ Latency: ${latency}ms`);
+        // Edit the original message with latency
+        try {
+          if (ctx.edit) {
+            await ctx.edit(`🏓 Pong!\n⏱️ Latency: ${latency}ms`);
+          } else if (ctx._adapter && ctx._adapter.editMessage) {
+            await ctx._adapter.editMessage(ctx.chatId, sentMsg.id || sentMsg.key?.id, `🏓 Pong!\n⏱️ Latency: ${latency}ms`);
+          }
+        } catch (e) {
+          // Fallback: send a new message
+          await ctx.reply(`🏓 Pong!\n⏱️ Latency: ${latency}ms`);
         }
       }
     }
