@@ -36,16 +36,22 @@ export default {
             async execute(ctx) {
                 const arg = ctx.args[0]?.toLowerCase();
                 const storage = getStorage();
+                const groupJid = ctx.chatId;
+
+                if (!groupJid || !groupJid.endsWith('@g.us')) {
+                    return ctx.reply('❌ This command can only be used in groups.');
+                }
+
                 if (!storage.antilink) storage.antilink = [];
 
                 if (arg === 'on') {
-                    if (!storage.antilink.includes(ctx.from)) {
-                        storage.antilink.push(ctx.from);
+                    if (!storage.antilink.includes(groupJid)) {
+                        storage.antilink.push(groupJid);
                         saveStorage(storage);
                     }
                     return ctx.reply('✅ Anti-link enabled for this group.');
                 } else if (arg === 'off') {
-                    storage.antilink = storage.antilink.filter(id => id !== ctx.from);
+                    storage.antilink = (storage.antilink || []).filter(id => id && id !== groupJid);
                     saveStorage(storage);
                     return ctx.reply('❌ Anti-link disabled for this group.');
                 } else {
@@ -62,16 +68,22 @@ export default {
             async execute(ctx) {
                 const arg = ctx.args[0]?.toLowerCase();
                 const storage = getStorage();
+                const groupJid = ctx.chatId;
+
+                if (!groupJid || !groupJid.endsWith('@g.us')) {
+                    return ctx.reply('❌ This command can only be used in groups.');
+                }
+
                 if (!storage.antispam) storage.antispam = [];
 
                 if (arg === 'on') {
-                    if (!storage.antispam.includes(ctx.from)) {
-                        storage.antispam.push(ctx.from);
+                    if (!storage.antispam.includes(groupJid)) {
+                        storage.antispam.push(groupJid);
                         saveStorage(storage);
                     }
                     return ctx.reply('✅ Anti-spam enabled for this group.');
                 } else if (arg === 'off') {
-                    storage.antispam = storage.antispam.filter(id => id !== ctx.from);
+                    storage.antispam = (storage.antispam || []).filter(id => id && id !== groupJid);
                     saveStorage(storage);
                     return ctx.reply('❌ Anti-spam disabled for this group.');
                 } else {

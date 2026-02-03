@@ -343,6 +343,38 @@ export default {
                 await ctx.reply('Usage: .group open/close');
             }
         }
+    },
+    {
+        name: 'open',
+        description: 'Open group chat for everyone',
+        usage: '.open',
+        category: 'group',
+        groupOnly: true,
+        adminOnly: true,
+        async execute(ctx) {
+            try {
+                await ctx.platformAdapter.client.groupSettingUpdate(ctx.chatId, 'not_announcement');
+                await ctx.reply('✅ Group chat is now open for everyone.');
+            } catch (error) {
+                await ctx.reply(`❌ Failed to open group: ${error.message}`);
+            }
+        }
+    },
+    {
+        name: 'close',
+        description: 'Close group chat (admins only)',
+        usage: '.close',
+        category: 'group',
+        groupOnly: true,
+        adminOnly: true,
+        async execute(ctx) {
+            try {
+                await ctx.platformAdapter.client.groupSettingUpdate(ctx.chatId, 'announcement');
+                await ctx.reply('✅ Group chat is now closed. Only admins can send messages.');
+            } catch (error) {
+                await ctx.reply(`❌ Failed to close group: ${error.message}`);
+            }
+        }
     }
   ]
 };
