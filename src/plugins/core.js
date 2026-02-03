@@ -243,5 +243,17 @@ export default {
         process.exit(0);
       }
     }
-  ]
+  ],
+  async init(ctx) {
+    const RESTART_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    console.log(`[Core] Auto-restart scheduled every 6 hours.`);
+    setInterval(async () => {
+      console.log('[Core] Auto-restart triggered.');
+      if (ctx && ctx.bot && typeof ctx.bot.restart === 'function') {
+        await ctx.bot.restart();
+      } else {
+        process.exit(0);
+      }
+    }, RESTART_INTERVAL);
+  }
 };
