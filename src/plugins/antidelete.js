@@ -463,10 +463,12 @@ export default {
       } catch (err) {
         console.error('[antidelete] Error processing deletion:', err);
         processedDeletes.set(dedupeKey, Date.now());
+      } finally {
+        processingDeletes.delete(dedupeKey);
       }
     };
     
-    whatsappAdapter.client?.ev?.on('messages.update', async (updates) => {
+    whatsappAdapter.on('raw:messages.update', async (updates) => {
       for (const update of updates) {
         try {
           // Check for REVOKE protocol message (Type 0) or messageStubType 1 (deletion)

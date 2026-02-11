@@ -256,6 +256,8 @@ export default class WhatsAppAdapter extends BaseAdapter {
     });
 
     this.client.ev.on('messages.update', async (updates) => {
+      // Forward raw update events so plugins can survive internal client re-connects.
+      this.emit('raw:messages.update', updates);
       for (const update of updates) {
         // WhatsApp edits often come as a protocol message in the update
         const messageUpdate = update.update;
